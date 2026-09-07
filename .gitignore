@@ -1,0 +1,72 @@
+# Flutter/Dart
+**/doc/api/
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/.symlinks/
+**/ios/Pods/
+**/ios/Podfile.lock
+
+**/android/.gradle/
+**/android/app/build/
+**/android/gradle/wrapper/gradle-wrapper.jar
+**/android/local.properties
+**/android/**/generated/
+**/android/**/build/
+
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/pubspec.lock  # обычно коммитят, но если хотите игнорировать — раскомментируйте
+
+# IDE
+**/.idea/
+**/*.iml
+**/*.iws
+**/*.ipr
+**/.vscode/   # если хотите игнорировать настройки VS Code (обычно коммитят)
+**/android/**/*.iml
+**/android/.settings/
+
+# macOS specific
+**/ios/**/*.mode1v3
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/xcuserdata/
+
+# Windows specific
+**/windows/flutter/ephemeral/
+**/windows/runner/Debug/
+**/windows/runner/Release/
+**/windows/runner/GeneratedPluginRegistrant.*
+
+# Linux specific
+**/linux/flutter/ephemeral/
+**/linux/runner/GeneratedPluginRegistrant.*
+
+# Web specific
+**/web/**/*.dart.js
+**/web/**/*.js.deps
+**/web/**/*.js.map
+**/web/**/*.info.json
+**/web/**/*.precompiled.js
+**/web/**/flutter_service_worker.js
+
+# Misc
+**/coverage/
+**/node_modules/
+**/.env
+**/.flutter-version
+
+# PyParser generated files
+pyparser.py
+pyparser_config.json
+structure.txt
+choosen_code.txt
+code.txt
