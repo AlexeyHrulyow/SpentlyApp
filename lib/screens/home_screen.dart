@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/expense.dart';
 import 'add_expense_screen.dart';
+import 'edit_expense_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -264,11 +265,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Icon(Icons.info_outline, color: Colors.grey),
                 )
               : null,
-          onTap: () {
-            // TODO: редактирование траты (позже)
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Редактирование пока не реализовано')),
+          onTap: () async {
+            // Открываем экран редактирования и ждём результат
+            bool? updated = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => EditExpenseScreen(expense: expense),
+              ),
             );
+            if (updated == true) {
+              _loadData(); // обновляем список после редактирования
+            }
           },
         ),
       ),
