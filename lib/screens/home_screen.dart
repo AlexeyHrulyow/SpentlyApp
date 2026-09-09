@@ -5,6 +5,7 @@ import '../database/database_helper.dart';
 import '../models/expense.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
+import 'stats_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -114,6 +115,27 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Text('Spently'),
         actions: [
+          IconButton(
+            icon: Icon(Icons.bar_chart),
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => StatsScreen(
+                    initialYear: _currentYear,
+                    initialMonth: _currentMonth,
+                  ),
+                ),
+              );
+              if (result != null && result is Map<String, int>) {
+                setState(() {
+                  _currentYear = result['year']!;
+                  _currentMonth = result['month']!;
+                });
+                _loadData();
+              }
+            },
+          ),
           // Кнопка для обновления (на случай, если данные не обновились)
           IconButton(
             icon: Icon(Icons.refresh),
@@ -251,7 +273,7 @@ class _HomeScreenState extends State<HomeScreen> {
         margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: iconColor.withOpacity(0.2),
+            backgroundColor: iconColor.withValues(alpha: 0.2),
             child: Icon(iconData, color: iconColor),
           ),
           title: Text(
