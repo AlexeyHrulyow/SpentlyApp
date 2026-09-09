@@ -1,8 +1,11 @@
 // lib/screens/home_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import '../models/expense.dart';
+import '../providers/theme_provider.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'stats_screen.dart';
@@ -28,6 +31,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _totalFixed = 0.0;
   double _totalPersonal = 0.0;
 
+  // Бюджет
+  double? _budget;
+
   bool _isLoading = true;
 
   @override
@@ -36,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
-  // Загрузка данных из БД (без сброса фильтров)
+  // Загрузка данных из БД и бюджета
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -61,11 +67,17 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    // Загружаем бюджет
+    final prefs = await SharedPreferences.getInstance();
+    final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
+    final budget = prefs.getDouble(budgetKey);
+
     setState(() {
       _expenses = expenses;
       _total = total;
       _totalFixed = fixed;
       _totalPersonal = personal;
+      _budget = budget;
       _isLoading = false;
     });
   }
@@ -134,12 +146,114 @@ class _HomeScreenState extends State<HomeScreen> {
     return filtered;
   }
 
+  // ================== БЮДЖЕТ ==================
+
+  // Диалог установки/изменения бюджета
+  Future<void> _showBudgetDialog() async {
+    final controller = TextEditingController();
+    if (_budget != null) controller.text = _budget!.toString();
+
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Бюджет на месяц'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Сумма бюджета (₽)',
+            hintText: 'Введите сумму',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              final value = double.tryParse(controller.text);
+              if (value != null && value > 0) {
+                Navigator.pop(context, value);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Введите корректную сумму')),
+                );
+              }
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
+      await prefs.setDouble(budgetKey, result);
+      setState(() {
+        _budget = result;
+      });
+    }
+  }
+
+  // Виджет прогресса бюджета
+  Widget _buildBudgetProgress() {
+    if (_budget == null || _budget == 0) return const SizedBox.shrink();
+
+    final spent = _total;
+    final percent = spent / _budget!;
+    final clampedPercent = percent.clamp(0.0, 1.0);
+
+    final barColor = clampedPercent < 0.8
+        ? Colors.green
+        : (clampedPercent < 1.0 ? Colors.orange : Colors.red);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Бюджет: ${_budget!.toStringAsFixed(0)} ₽'),
+              Text('Потрачено: ${spent.toStringAsFixed(0)} ₽ (${(clampedPercent * 100).toStringAsFixed(0)}%)'),
+            ],
+          ),
+          LinearProgressIndicator(
+            value: clampedPercent,
+            backgroundColor: Colors.grey.shade300,
+            color: barColor,
+            minHeight: 8,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Spently'),
         actions: [
+          // Переключатель темы
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, child) {
+              return IconButton(
+                icon: Icon(
+                  themeProvider.themeMode == ThemeMode.dark
+                      ? Icons.light_mode
+                      : Icons.dark_mode,
+                ),
+                onPressed: themeProvider.toggleTheme,
+                tooltip: 'Сменить тему',
+              );
+            },
+          ),
           IconButton(
             icon: Icon(Icons.bar_chart),
             onPressed: () async {
@@ -211,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Виджет сводки (итоги за месяц)
+  // Виджет сводки (итоги за месяц) + бюджет
   Widget _buildSummary() {
     String monthName = _getMonthName(_currentMonth);
     return Container(
@@ -274,6 +388,41 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          // Прогресс бюджета
+          _buildBudgetProgress(),
+          // Кнопки управления бюджетом
+          if (_budget == null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _showBudgetDialog,
+                child: const Text('Установить бюджет'),
+              ),
+            )
+          else
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: _showBudgetDialog,
+                    child: const Text('Изменить'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final prefs = await SharedPreferences.getInstance();
+                      final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
+                      await prefs.remove(budgetKey);
+                      setState(() {
+                        _budget = null;
+                      });
+                    },
+                    child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

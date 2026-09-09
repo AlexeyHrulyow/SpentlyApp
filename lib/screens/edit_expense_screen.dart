@@ -83,11 +83,43 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
     Navigator.pop(context, true);
   }
 
+  Future<void> _deleteExpense() async {
+    bool? confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Удалить трату?'),
+        content: Text('Вы уверены?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Удалить', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await DatabaseHelper.instance.deleteTransaction(widget.expense.id!);
+      Navigator.pop(context, true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Редактировать трату'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.delete, color: Colors.red),
+            onPressed: _deleteExpense,
+            tooltip: 'Удалить трату',
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -105,7 +137,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
             SizedBox(height: 16),
 
             DropdownButtonFormField<String>(
-              initialValue: _selectedCategory,
+              value: _selectedCategory,
               items: ['fixed', 'personal'].map((category) {
                 return DropdownMenuItem(
                   value: category,
@@ -126,7 +158,7 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
             SizedBox(height: 16),
 
             DropdownButtonFormField<String>(
-              initialValue: _selectedSubcategory,
+              value: _selectedSubcategory,
               items: _getSubcategories().map((sub) {
                 return DropdownMenuItem(
                   value: sub,

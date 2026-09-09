@@ -34,7 +34,8 @@ dependencies:
   sqflite: ^2.3.0          # ^ означает "совместимая версия"
   path_provider: ^2.1.0    # для получения путей к папкам телефона
   path: ^1.8.3             # для удобной работы с путями (склейка)
-  
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1
   cupertino_icons: ^1.0.8
   fl_chart: ^1.2.0
 
