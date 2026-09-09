@@ -17,6 +17,10 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentYear = DateTime.now().year;
   int _currentMonth = DateTime.now().month;
 
+  // Фильтры
+  String? _filterCategory;      // null = все, 'fixed', 'personal'
+  String? _filterSubcategory;   // null = все
+
   // Список трат за текущий месяц
   List<Expense> _expenses = [];
   // Итоговые суммы
@@ -32,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
-  // Загрузка данных из БД
+  // Загрузка данных из БД (без сброса фильтров)
   Future<void> _loadData() async {
     setState(() {
       _isLoading = true;
@@ -66,7 +70,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Переключение месяца
+  // Сброс фильтров
+  void _resetFilters() {
+    setState(() {
+      _filterCategory = null;
+      _filterSubcategory = null;
+    });
+  }
+
+  // Переключение месяца (сбрасываем фильтры)
   void _changeMonth(int offset) {
     setState(() {
       _currentMonth += offset;
@@ -78,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _currentYear--;
       }
     });
+    _resetFilters();
     _loadData();
   }
 
@@ -102,11 +115,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (confirm == true) {
       await DatabaseHelper.instance.deleteTransaction(id);
-      _loadData(); // обновляем список
+      _loadData(); // обновляем список (фильтры сохраняются)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Трата удалена')),
       );
     }
+  }
+
+  // Получение отфильтрованного списка
+  List<Expense> _getFilteredExpenses() {
+    var filtered = _expenses;
+    if (_filterCategory != null) {
+      filtered = filtered.where((e) => e.category == _filterCategory).toList();
+    }
+    if (_filterSubcategory != null) {
+      filtered = filtered.where((e) => e.subcategory == _filterSubcategory).toList();
+    }
+    return filtered;
   }
 
   @override
@@ -132,6 +157,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   _currentYear = result['year']!;
                   _currentMonth = result['month']!;
                 });
+                _resetFilters(); // сбрасываем фильтры при смене месяца из статистики
                 _loadData();
               }
             },
@@ -147,9 +173,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ? Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Сводка за месяц
                 _buildSummary(),
-                // Список трат
+                _buildFilters(),
                 Expanded(
                   child: _expenses.isEmpty
                       ? Center(
@@ -159,9 +184,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         )
                       : ListView.builder(
-                          itemCount: _expenses.length,
+                          itemCount: _getFilteredExpenses().length,
                           itemBuilder: (context, index) {
-                            final expense = _expenses[index];
+                            final expense = _getFilteredExpenses()[index];
                             return _buildExpenseItem(expense);
                           },
                         ),
@@ -176,7 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
             MaterialPageRoute(builder: (context) => AddExpenseScreen()),
           );
           if (result == true) {
-            // Если пользователь сохранил трату — обновляем данные
+            // Если пользователь сохранил трату — обновляем данные (фильтры сохраняются)
             _loadData();
           }
         },
@@ -251,6 +276,88 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Виджет фильтров
+  Widget _buildFilters() {
+    // Получаем уникальные подкатегории из текущего списка
+    final subcategories = _expenses.map((e) => e.subcategory).toSet().toList();
+    subcategories.sort();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Строка с надписью "Категория" и чипсами в отдельной строке
+          const Text(
+            'Категория:',
+            style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 4,          // горизонтальный отступ между чипсами
+            runSpacing: 4,        // отступ между строками, если переносятся
+            children: [
+              _buildCategoryChip('Все', null),
+              _buildCategoryChip('Обязательные', 'fixed'),
+              _buildCategoryChip('Личные', 'personal'),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Фильтр по подкатегории
+          if (subcategories.isNotEmpty)
+            Row(
+              children: [
+                const Text(
+                  'Подкатегория:',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButton<String>(
+                    hint: const Text('Все'),
+                    value: _filterSubcategory,
+                    isExpanded: true,
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('Все'),
+                      ),
+                      ...subcategories.map((sub) {
+                        return DropdownMenuItem<String>(
+                          value: sub,
+                          child: Text(_translateSubcategory(sub)),
+                        );
+                      }),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _filterSubcategory = value;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+  
+  // Чипс для выбора категории
+  Widget _buildCategoryChip(String label, String? value) {
+    bool isSelected = _filterCategory == value;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        setState(() {
+          _filterCategory = selected ? value : null;
+        });
+      },
     );
   }
 
