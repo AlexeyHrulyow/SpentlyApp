@@ -26,12 +26,13 @@ class _StatsScreenState extends State<StatsScreen> {
   List<Expense> _expenses = [];
   bool _isLoading = true;
 
-  // Данные для диаграмм
   Map<String, double> _subcategoryData = {};
   Map<int, double> _dailyData = {};
 
-  // Выбранный тип диаграммы: 0 - круговая, 1 - столбчатая
   int _selectedChartIndex = 0;
+
+  // ← Флаг для PopScope: разрешает фактический pop.
+  bool _canPop = false;
 
   @override
   void initState() {
@@ -41,24 +42,19 @@ class _StatsScreenState extends State<StatsScreen> {
     _loadData();
   }
 
-  // Загрузка данных за текущий месяц
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
 
-    List<Expense> expenses = await DatabaseHelper.instance.getTransactionsForMonth(
-      _currentYear,
-      _currentMonth,
-    );
+    List<Expense> expenses = await DatabaseHelper.instance
+        .getTransactionsForMonth(_currentYear, _currentMonth);
     _expenses = expenses;
 
-    // Группировка по подкатегориям (для круговой диаграммы)
     Map<String, double> subcatMap = {};
     for (var e in expenses) {
       subcatMap[e.subcategory] = (subcatMap[e.subcategory] ?? 0.0) + e.amount;
     }
     _subcategoryData = subcatMap;
 
-    // Группировка по дням (для столбчатой диаграммы)
     Map<int, double> dayMap = {};
     for (var e in expenses) {
       int day = e.date.day;
@@ -66,10 +62,10 @@ class _StatsScreenState extends State<StatsScreen> {
     }
     _dailyData = dayMap;
 
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
-  // Переключение месяца
   void _changeMonth(int offset) {
     setState(() {
       _currentMonth += offset;
@@ -84,36 +80,49 @@ class _StatsScreenState extends State<StatsScreen> {
     _loadData();
   }
 
-  // Возврат на предыдущий экран с передачей текущих года и месяца
+  // Возврат с передачей текущих года и месяца на главный экран.
+  // Мы сначала разрешаем pop (setState -> _canPop=true), затем в следующем
+  // кадре вызываем Navigator.pop уже с результатом.
   void _closeWithResult() {
-    Navigator.pop(context, {'year': _currentYear, 'month': _currentMonth});
+    setState(() => _canPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).pop({
+        'year': _currentYear,
+        'month': _currentMonth,
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
+    // PopScope заменил устаревший WillPopScope.
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
         _closeWithResult();
-        return false; // pop уже выполнен
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Статистика за ${_getMonthName(_currentMonth)} $_currentYear'),
+          title: Text(
+            'Статистика за ${_getMonthName(_currentMonth)} $_currentYear',
+          ),
           leading: IconButton(
-            icon: Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back),
             onPressed: _closeWithResult,
           ),
           actions: [
             IconButton(
-              icon: Icon(Icons.chevron_left),
+              icon: const Icon(Icons.chevron_left),
               onPressed: () => _changeMonth(-1),
             ),
             IconButton(
-              icon: Icon(Icons.chevron_right),
+              icon: const Icon(Icons.chevron_right),
               onPressed: () => _changeMonth(1),
             ),
             IconButton(
-              icon: Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh),
               onPressed: _loadData,
             ),
           ],
@@ -125,7 +134,6 @@ class _StatsScreenState extends State<StatsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Переключатель типов диаграмм
                     Center(
                       child: SegmentedButton<int>(
                         segments: const [
@@ -142,40 +150,17 @@ class _StatsScreenState extends State<StatsScreen> {
                         ],
                         selected: {_selectedChartIndex},
                         onSelectionChanged: (Set<int> newSelection) {
-                          setState(() {
-                            _selectedChartIndex = newSelection.first;
-                          });
+                          setState(
+                            () => _selectedChartIndex = newSelection.first,
+                          );
                         },
-                        style: ButtonStyle(
-                          backgroundColor: WidgetStateProperty.resolveWith<Color>(
-                            (states) {
-                              if (states.contains(WidgetState.selected)) {
-                                return Theme.of(context).colorScheme.primary;
-                              }
-                              return Theme.of(context).colorScheme.surface;
-                            },
-                          ),
-                          foregroundColor: WidgetStateProperty.resolveWith<Color>(
-                            (states) {
-                              if (states.contains(WidgetState.selected)) {
-                                return Colors.white;
-                              }
-                              return Theme.of(context).colorScheme.onSurface;
-                            },
-                          ),
-                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // Отображение выбранной диаграммы
                     _selectedChartIndex == 0
                         ? _buildPieChart()
                         : _buildBarChart(context),
-
                     const SizedBox(height: 32),
-
-                    // Итоговые суммы
                     _buildTotals(),
                   ],
                 ),
@@ -186,13 +171,17 @@ class _StatsScreenState extends State<StatsScreen> {
 
   // ------------------- КРУГОВАЯ ДИАГРАММА -------------------
   Widget _buildPieChart() {
+    final cs = Theme.of(context).colorScheme;
+
     if (_subcategoryData.isEmpty) {
-      return const Center(
-        child: Text('Нет данных для отображения', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          'Нет данных для отображения',
+          style: TextStyle(color: cs.onSurfaceVariant),
+        ),
       );
     }
 
-    // Цвета для подкатегорий
     final List<Color> colors = [
       Colors.blue,
       Colors.green,
@@ -225,11 +214,19 @@ class _StatsScreenState extends State<StatsScreen> {
           value: amount,
           title: '${percentage.toStringAsFixed(1)}%',
           radius: 80,
+          // ← Цвет секторов яркий и не зависит от темы,
+          // поэтому белый текст + тёмная тень читаются всегда.
           titleStyle: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.bold,
-            color: Colors.black,
-            shadows: [Shadow(blurRadius: 2, color: Colors.black54)],
+            color: Colors.white,
+            shadows: [
+              Shadow(
+                blurRadius: 3,
+                color: Colors.black87,
+                offset: Offset(0, 1),
+              ),
+            ],
           ),
         ),
       );
@@ -244,16 +241,10 @@ class _StatsScreenState extends State<StatsScreen> {
               sections: sections,
               sectionsSpace: 2,
               centerSpaceRadius: 40,
-              pieTouchData: PieTouchData(
-                touchCallback: (FlTouchEvent event, pieTouchResponse) {
-                  // Можно добавить обработку нажатия для деталей
-                },
-              ),
             ),
           ),
         ),
         const SizedBox(height: 16),
-        // Легенда
         Wrap(
           spacing: 12,
           runSpacing: 8,
@@ -268,7 +259,8 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '${_translateSubcategory(subcatNames[index])} (${_subcategoryData[subcatNames[index]]!.toStringAsFixed(0)}₽)',
+                  '${_translateSubcategory(subcatNames[index])} '
+                  '(${_subcategoryData[subcatNames[index]]!.toStringAsFixed(0)}₽)',
                   style: const TextStyle(fontSize: 12),
                 ),
               ],
@@ -278,17 +270,23 @@ class _StatsScreenState extends State<StatsScreen> {
       ],
     );
   }
-  
+
   // ------------------- СТОЛБЧАТАЯ ДИАГРАММА -------------------
   Widget _buildBarChart(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     if (_dailyData.isEmpty) {
-      return const Center(
-        child: Text('Нет данных для отображения', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text(
+          'Нет данных для отображения',
+          style: TextStyle(color: cs.onSurfaceVariant),
+        ),
       );
     }
 
     final List<int> days = _dailyData.keys.toList()..sort();
-    final double maxValue = _dailyData.values.reduce((a, b) => a > b ? a : b);
+    final double maxValue =
+        _dailyData.values.reduce((a, b) => a > b ? a : b);
     if (maxValue == 0) return const SizedBox.shrink();
 
     final screenWidth = MediaQuery.of(context).size.width;
@@ -313,9 +311,11 @@ class _StatsScreenState extends State<StatsScreen> {
           barRods: [
             BarChartRodData(
               toY: amount,
-              color: Colors.blue,
+              // ← primary из темы: синий в light, светлее в dark.
+              color: cs.primary,
               width: barWidth,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(4)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(4)),
             ),
           ],
         ),
@@ -337,7 +337,10 @@ class _StatsScreenState extends State<StatsScreen> {
                   reservedSize: 40,
                   getTitlesWidget: (value, meta) {
                     int index = value.toInt();
-                    if (index >= 0 && index < days.length && (index % labelStep == 0 || index == days.length - 1)) {
+                    if (index >= 0 &&
+                        index < days.length &&
+                        (index % labelStep == 0 ||
+                            index == days.length - 1)) {
                       return Transform.rotate(
                         angle: -0.8,
                         child: Text(
@@ -355,12 +358,19 @@ class _StatsScreenState extends State<StatsScreen> {
                   showTitles: true,
                   reservedSize: 40,
                   getTitlesWidget: (value, meta) {
-                    return Text('${value.toInt()}₽', style: const TextStyle(fontSize: 10));
+                    return Text(
+                      '${value.toInt()}₽',
+                      style: const TextStyle(fontSize: 10),
+                    );
                   },
                 ),
               ),
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
             ),
             borderData: FlBorderData(show: false),
             gridData: const FlGridData(show: true),
@@ -371,7 +381,10 @@ class _StatsScreenState extends State<StatsScreen> {
                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                   return BarTooltipItem(
                     '${rod.toY.toStringAsFixed(0)} ₽',
-                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   );
                 },
               ),
@@ -381,8 +394,12 @@ class _StatsScreenState extends State<StatsScreen> {
       ),
     );
   }
+
   // ------------------- БЛОК ИТОГОВ -------------------
+  // ← Переведён на цвета темы.
   Widget _buildTotals() {
+    final cs = Theme.of(context).colorScheme;
+
     final double total = _expenses.fold(0.0, (sum, e) => sum + e.amount);
     final double fixed = _expenses
         .where((e) => e.category == 'fixed')
@@ -394,47 +411,54 @@ class _StatsScreenState extends State<StatsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: cs.primaryContainer,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Итоги за месяц:',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: cs.onPrimaryContainer,
+            ),
           ),
           const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Всего:', style: TextStyle(fontSize: 16)),
-              Text(
-                '${total.toStringAsFixed(2)} ₽',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Обязательные:', style: TextStyle(fontSize: 16)),
-              Text('${fixed.toStringAsFixed(2)} ₽', style: const TextStyle(fontSize: 16)),
-            ],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Личные:', style: TextStyle(fontSize: 16)),
-              Text('${personal.toStringAsFixed(2)} ₽', style: const TextStyle(fontSize: 16)),
-            ],
+          _totalsRow('Всего:', total, cs.onPrimaryContainer, bold: true),
+          _totalsRow('Обязательные:', fixed, cs.onPrimaryContainer),
+          _totalsRow('Личные:', personal, cs.onPrimaryContainer),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalsRow(
+    String label,
+    double value,
+    Color color, {
+    bool bold = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 16, color: color)),
+          Text(
+            '${value.toStringAsFixed(2)} ₽',
+            style: TextStyle(
+              fontSize: bold ? 18 : 16,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              color: color,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ------------------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ -------------------
   String _getMonthName(int month) {
     const months = [
       'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',

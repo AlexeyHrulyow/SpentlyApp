@@ -16,22 +16,16 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Текущий месяц (год и месяц)
   int _currentYear = DateTime.now().year;
   int _currentMonth = DateTime.now().month;
 
-  // Фильтры
-  String? _filterCategory;      // null = все, 'fixed', 'personal'
-  String? _filterSubcategory;   // null = все
+  String? _filterCategory;
+  String? _filterSubcategory;
 
-  // Список трат за текущий месяц
   List<Expense> _expenses = [];
-  // Итоговые суммы
   double _total = 0.0;
   double _totalFixed = 0.0;
   double _totalPersonal = 0.0;
-
-  // Бюджет
   double? _budget;
 
   bool _isLoading = true;
@@ -42,19 +36,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
-  // Загрузка данных из БД и бюджета
   Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
-    // Получаем траты за месяц
-    List<Expense> expenses = await DatabaseHelper.instance.getTransactionsForMonth(
-      _currentYear,
-      _currentMonth,
-    );
+    List<Expense> expenses = await DatabaseHelper.instance
+        .getTransactionsForMonth(_currentYear, _currentMonth);
 
-    // Считаем суммы
     double total = 0.0;
     double fixed = 0.0;
     double personal = 0.0;
@@ -67,11 +54,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // Загружаем бюджет
     final prefs = await SharedPreferences.getInstance();
     final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
     final budget = prefs.getDouble(budgetKey);
 
+    if (!mounted) return;
     setState(() {
       _expenses = expenses;
       _total = total;
@@ -82,7 +69,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Сброс фильтров
   void _resetFilters() {
     setState(() {
       _filterCategory = null;
@@ -90,7 +76,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Переключение месяца (сбрасываем фильтры)
   void _changeMonth(int offset) {
     setState(() {
       _currentMonth += offset;
@@ -106,49 +91,46 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
-  // Удаление траты (с подтверждением)
   Future<void> _deleteExpense(int id) async {
     bool? confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Удалить трату?'),
-        content: Text('Вы уверены?'),
+        title: const Text('Удалить трату?'),
+        content: const Text('Вы уверены?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Отмена'),
+            child: const Text('Отмена'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text('Удалить'),
+            child: const Text('Удалить'),
           ),
         ],
       ),
     );
     if (confirm == true) {
       await DatabaseHelper.instance.deleteTransaction(id);
-      _loadData(); // обновляем список (фильтры сохраняются)
+      _loadData();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Трата удалена')),
+        const SnackBar(content: Text('Трата удалена')),
       );
     }
   }
 
-  // Получение отфильтрованного списка
   List<Expense> _getFilteredExpenses() {
     var filtered = _expenses;
     if (_filterCategory != null) {
       filtered = filtered.where((e) => e.category == _filterCategory).toList();
     }
     if (_filterSubcategory != null) {
-      filtered = filtered.where((e) => e.subcategory == _filterSubcategory).toList();
+      filtered =
+          filtered.where((e) => e.subcategory == _filterSubcategory).toList();
     }
     return filtered;
   }
 
-  // ================== БЮДЖЕТ ==================
-
-  // Диалог установки/изменения бюджета
   Future<void> _showBudgetDialog() async {
     final controller = TextEditingController();
     if (_budget != null) controller.text = _budget!.toString();
@@ -192,16 +174,16 @@ class _HomeScreenState extends State<HomeScreen> {
       final prefs = await SharedPreferences.getInstance();
       final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
       await prefs.setDouble(budgetKey, result);
-      setState(() {
-        _budget = result;
-      });
+      if (!mounted) return;
+      setState(() => _budget = result);
     }
   }
 
-  // Виджет прогресса бюджета
+  // ← Фон прогресс-бара берём из темы, а не хардкодим серый.
   Widget _buildBudgetProgress() {
     if (_budget == null || _budget == 0) return const SizedBox.shrink();
 
+    final cs = Theme.of(context).colorScheme;
     final spent = _total;
     final percent = spent / _budget!;
     final clampedPercent = percent.clamp(0.0, 1.0);
@@ -219,12 +201,17 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Бюджет: ${_budget!.toStringAsFixed(0)} ₽'),
-              Text('Потрачено: ${spent.toStringAsFixed(0)} ₽ (${(clampedPercent * 100).toStringAsFixed(0)}%)'),
+              Text(
+                'Потрачено: ${spent.toStringAsFixed(0)} ₽ '
+                '(${(clampedPercent * 100).toStringAsFixed(0)}%)',
+              ),
             ],
           ),
+          const SizedBox(height: 4),
           LinearProgressIndicator(
             value: clampedPercent,
-            backgroundColor: Colors.grey.shade300,
+            // ← surfaceContainerHighest: светло-серый в light, тёмно-серый в dark.
+            backgroundColor: cs.surfaceContainerHighest,
             color: barColor,
             minHeight: 8,
             borderRadius: BorderRadius.circular(4),
@@ -238,9 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Spently'),
+        title: const Text('Spently'),
         actions: [
-          // Переключатель темы
           Consumer<ThemeProvider>(
             builder: (context, themeProvider, child) {
               return IconButton(
@@ -255,7 +241,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           IconButton(
-            icon: Icon(Icons.bar_chart),
+            icon: const Icon(Icons.bar_chart),
             onPressed: () async {
               final result = await Navigator.push(
                 context,
@@ -271,126 +257,158 @@ class _HomeScreenState extends State<HomeScreen> {
                   _currentYear = result['year']!;
                   _currentMonth = result['month']!;
                 });
-                _resetFilters(); // сбрасываем фильтры при смене месяца из статистики
+                _resetFilters();
                 _loadData();
               }
             },
           ),
-          // Кнопка для обновления (на случай, если данные не обновились)
           IconButton(
-            icon: Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
         ],
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
                 _buildSummary(),
                 _buildFilters(),
-                Expanded(
-                  child: _expenses.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Нет трат за этот месяц',
-                            style: TextStyle(fontSize: 16, color: Colors.grey),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _getFilteredExpenses().length,
-                          itemBuilder: (context, index) {
-                            final expense = _getFilteredExpenses()[index];
-                            return _buildExpenseItem(expense);
-                          },
-                        ),
-                ),
+                // ← Фильтр считается один раз, а не в каждой итерации ListView.
+                Expanded(child: _buildExpenseList()),
               ],
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          // Переход на экран добавления и ожидание результата
           bool? result = await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => AddExpenseScreen()),
           );
           if (result == true) {
-            // Если пользователь сохранил трату — обновляем данные (фильтры сохраняются)
             _loadData();
           }
         },
-        child: Icon(Icons.add),
+        child: const Icon(Icons.add),
         tooltip: 'Добавить трату',
       ),
     );
   }
 
-  // Виджет сводки (итоги за месяц) + бюджет
+  Widget _buildExpenseList() {
+    final filtered = _getFilteredExpenses();
+    if (filtered.isEmpty) {
+      final cs = Theme.of(context).colorScheme;
+      return Center(
+        child: Text(
+          'Нет трат за этот месяц',
+          style: TextStyle(fontSize: 16, color: cs.onSurfaceVariant),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: filtered.length,
+      itemBuilder: (context, index) => _buildExpenseItem(filtered[index]),
+    );
+  }
+
+  // ================== СВОДКА ==================
+  // ← Полностью переведена на цвета темы.
   Widget _buildSummary() {
-    String monthName = _getMonthName(_currentMonth);
+    final cs = Theme.of(context).colorScheme;
+    final String monthName = _getMonthName(_currentMonth);
+
     return Container(
-      padding: EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+        // primaryContainer: светло-синяя в light, тёмно-синяя в dark.
+        color: cs.primaryContainer,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Переключатель месяца
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               IconButton(
-                icon: Icon(Icons.chevron_left),
+                icon: const Icon(Icons.chevron_left),
                 onPressed: () => _changeMonth(-1),
+                color: cs.onPrimaryContainer,
               ),
               Text(
                 '$monthName $_currentYear',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: cs.onPrimaryContainer,
+                ),
               ),
               IconButton(
-                icon: Icon(Icons.chevron_right),
+                icon: const Icon(Icons.chevron_right),
                 onPressed: () => _changeMonth(1),
+                color: cs.onPrimaryContainer,
               ),
             ],
           ),
-          SizedBox(height: 8),
-          // Общая сумма
+          const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Всего:', style: TextStyle(fontSize: 16)),
+              Text(
+                'Всего:',
+                style: TextStyle(fontSize: 16, color: cs.onPrimaryContainer),
+              ),
               Text(
                 '${_total.toStringAsFixed(2)} ₽',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: cs.onPrimaryContainer,
+                ),
               ),
             ],
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Обязательные:', style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+              Text(
+                'Обязательные:',
+                // ← onPrimaryContainer с прозрачностью вместо серого.
+                style: TextStyle(
+                  fontSize: 14,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.75),
+                ),
+              ),
               Text(
                 '${_totalFixed.toStringAsFixed(2)} ₽',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade800),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.9),
+                ),
               ),
             ],
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Личные:', style: TextStyle(fontSize: 14, color: Colors.grey.shade700)),
+              Text(
+                'Личные:',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.75),
+                ),
+              ),
               Text(
                 '${_totalPersonal.toStringAsFixed(2)} ₽',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade800),
+                style: TextStyle(
+                  fontSize: 16,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.9),
+                ),
               ),
             ],
           ),
-          // Прогресс бюджета
           _buildBudgetProgress(),
-          // Кнопки управления бюджетом
           if (_budget == null)
             Align(
               alignment: Alignment.centerRight,
@@ -412,13 +430,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   TextButton(
                     onPressed: () async {
                       final prefs = await SharedPreferences.getInstance();
-                      final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
+                      final budgetKey =
+                          'budget_${_currentYear}_${_currentMonth}';
                       await prefs.remove(budgetKey);
-                      setState(() {
-                        _budget = null;
-                      });
+                      if (!mounted) return;
+                      setState(() => _budget = null);
                     },
-                    child: const Text('Удалить', style: TextStyle(color: Colors.red)),
+                    child: const Text(
+                      'Удалить',
+                      style: TextStyle(color: Colors.red),
+                    ),
                   ),
                 ],
               ),
@@ -428,10 +449,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Виджет фильтров
   Widget _buildFilters() {
-    // Получаем уникальные подкатегории из текущего списка
-    final subcategories = _expenses.map((e) => e.subcategory).toSet().toList();
+    final subcategories =
+        _expenses.map((e) => e.subcategory).toSet().toList();
     subcategories.sort();
 
     return Padding(
@@ -439,15 +459,14 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Строка с надписью "Категория" и чипсами в отдельной строке
           const Text(
             'Категория:',
             style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
           ),
           const SizedBox(height: 4),
           Wrap(
-            spacing: 4,          // горизонтальный отступ между чипсами
-            runSpacing: 4,        // отступ между строками, если переносятся
+            spacing: 4,
+            runSpacing: 4,
             children: [
               _buildCategoryChip('Все', null),
               _buildCategoryChip('Обязательные', 'fixed'),
@@ -455,8 +474,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 8),
-
-          // Фильтр по подкатегории
           if (subcategories.isNotEmpty)
             Row(
               children: [
@@ -483,9 +500,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       }),
                     ],
                     onChanged: (value) {
-                      setState(() {
-                        _filterSubcategory = value;
-                      });
+                      setState(() => _filterSubcategory = value);
                     },
                   ),
                 ),
@@ -495,38 +510,39 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-  
-  // Чипс для выбора категории
+
   Widget _buildCategoryChip(String label, String? value) {
-    bool isSelected = _filterCategory == value;
+    final bool isSelected = _filterCategory == value;
     return ChoiceChip(
       label: Text(label),
       selected: isSelected,
       onSelected: (selected) {
-        setState(() {
-          _filterCategory = selected ? value : null;
-        });
+        setState(() => _filterCategory = selected ? value : null);
       },
     );
   }
 
-  // Виджет одной траты в списке
   Widget _buildExpenseItem(Expense expense) {
-    // Определяем цвет иконки в зависимости от категории
-    Color iconColor = expense.category == 'fixed' ? Colors.blue : Colors.orange;
-    IconData iconData = expense.category == 'fixed'
+    final Color iconColor =
+        expense.category == 'fixed' ? Colors.blue : Colors.orange;
+    final IconData iconData = expense.category == 'fixed'
         ? Icons.home_work
         : Icons.person_outline;
 
     return Dismissible(
       key: Key(expense.id.toString()),
-      background: Container(color: Colors.red, alignment: Alignment.centerRight, padding: EdgeInsets.only(right: 20), child: Icon(Icons.delete, color: Colors.white)),
+      background: Container(
+        color: Colors.red,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: const Icon(Icons.delete, color: Colors.white),
+      ),
       direction: DismissDirection.endToStart,
       onDismissed: (direction) {
         _deleteExpense(expense.id!);
       },
       child: Card(
-        margin: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: ListTile(
           leading: CircleAvatar(
             backgroundColor: iconColor.withValues(alpha: 0.2),
@@ -534,17 +550,20 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           title: Text(
             '${expense.amount.toStringAsFixed(2)} ₽',
-            style: TextStyle(fontWeight: FontWeight.bold),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          subtitle: Text('${_translateSubcategory(expense.subcategory)}   ${expense.date.toLocal().toString().split(' ')[0]}'),
+          subtitle: Text(
+            '${_translateSubcategory(expense.subcategory)}   '
+            '${expense.date.toLocal().toString().split(' ')[0]}',
+          ),
           trailing: expense.description.isNotEmpty
               ? Tooltip(
                   message: expense.description,
-                  child: Icon(Icons.info_outline, color: Colors.grey),
+                  // ← без цвета: наследуется из темы (было Colors.grey).
+                  child: const Icon(Icons.info_outline),
                 )
               : null,
           onTap: () async {
-            // Открываем экран редактирования и ждём результат
             bool? updated = await Navigator.push(
               context,
               MaterialPageRoute(
@@ -552,7 +571,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             );
             if (updated == true) {
-              _loadData(); // обновляем список после редактирования
+              _loadData();
             }
           },
         ),
@@ -560,7 +579,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Вспомогательные методы
   String _getMonthName(int month) {
     const months = [
       'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
