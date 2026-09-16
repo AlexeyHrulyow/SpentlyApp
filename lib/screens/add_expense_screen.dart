@@ -5,31 +5,34 @@ import '../models/expense.dart';
 import '../database/database_helper.dart';
 
 class AddExpenseScreen extends StatefulWidget {
+  const AddExpenseScreen({super.key});
+
   @override
-  _AddExpenseScreenState createState() => _AddExpenseScreenState();
+  State<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
 
 class _AddExpenseScreenState extends State<AddExpenseScreen> {
-  // Контроллеры для полей ввода
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  // Переменные для хранения выбранных значений
-  String _selectedCategory = 'fixed';   // по умолчанию 'fixed'
-  String _selectedSubcategory = 'products';
+  String _selectedCategory = 'fixed';
+  String _selectedSubcategory = 'communal';
   DateTime _selectedDate = DateTime.now();
 
-  // Список подкатегорий для 'fixed'
+  // Флаг: сохранили ли мы хотя бы одну трату за время работы экрана.
+  // Его вернём на главный экран через Navigator.pop, чтобы тот решил,
+  // обновлять ли данные.
+  bool _hasSaved = false;
+
   final List<String> fixedSubcategories = [
     'communal',
     'products',
-    'supplies', // расходники
+    'supplies',
     'transport',
     'health',
     'education',
   ];
 
-  // Список подкатегорий для 'personal'
   final List<String> personalSubcategories = [
     'restaurant',
     'fastfood',
@@ -39,20 +42,32 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     'clothes',
   ];
 
-  // Метод для сохранения траты
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  // Сбрасываем форму в исходное состояние.
+  void _resetForm() {
+    _amountController.clear();
+    _descriptionController.clear();
+    _selectedCategory = 'fixed';
+    _selectedSubcategory = fixedSubcategories.first;
+    _selectedDate = DateTime.now();
+  }
+
   Future<void> _saveExpense() async {
-    // Считываем сумму из поля (преобразуем String в double)
-    double amount = double.tryParse(_amountController.text) ?? 0.0;
+    final double amount = double.tryParse(_amountController.text) ?? 0.0;
     if (amount <= 0) {
-      // Показываем ошибку, если сумма невалидна
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Введите корректную сумму')),
+        const SnackBar(content: Text('Введите корректную сумму')),
       );
       return;
     }
 
-    // Создаём объект Expense
-    Expense newExpense = Expense(
+    final Expense newExpense = Expense(
       amount: amount,
       category: _selectedCategory,
       subcategory: _selectedSubcategory,
@@ -60,173 +75,174 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       date: _selectedDate,
     );
 
-    // Вставляем в БД
-    int id = await DatabaseHelper.instance.insertTransaction(newExpense);
-    print('Добавлена трата с id: $id');
+    await DatabaseHelper.instance.insertTransaction(newExpense);
 
-    // Возвращаемся на предыдущий экран (передаём сигнал об обновлении)
-    // ignore: use_build_context_synchronously
-    Navigator.pop(context, true);
+    // После await виджет мог быть удалён — обязательно проверяем.
+    if (!mounted) return;
+
+    setState(() {
+      _hasSaved = true;
+      _resetForm();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Трата добавлена'),
+        duration: Duration(seconds: 1),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Добавить трату'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Поле для суммы
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Сумма (₽)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-
-            // Выбор категории (fixed / personal)
-            DropdownButtonFormField<String>(
-              initialValue: _selectedCategory,
-              items: ['fixed', 'personal'].map((category) {
-                return DropdownMenuItem(
-                  value: category,
-                  child: Text(category == 'fixed' ? 'Обязательные' : 'Личные'),
-                );
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  _selectedCategory = newValue!;
-                  // При смене категории сбрасываем подкатегорию на первую из списка
-                  _selectedSubcategory = _getSubcategories().first;
-                });
-              },
-              decoration: InputDecoration(
-                labelText: 'Категория',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-
-            // Выбор подкатегории (зависит от выбранной категории)
-            DropdownButtonFormField<String>(
-              initialValue: _selectedSubcategory,
-              items: _getSubcategories().map((sub) {
-                return DropdownMenuItem(
-                  value: sub,
-                  child: Text(_translateSubcategory(sub)),
-                );
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  _selectedSubcategory = newValue!;
-                });
-              },
-              decoration: InputDecoration(
-                labelText: 'Подкатегория',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-
-            // Поле для описания
-            TextField(
-              controller: _descriptionController,
-              decoration: InputDecoration(
-                labelText: 'Описание (необязательно)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            SizedBox(height: 16),
-
-            // Выбор даты
-            Row(
-              children: [
-                Text(
-                  'Дата: ${_selectedDate.toLocal().toString().split(' ')[0]}',
-                  style: TextStyle(fontSize: 16),
-                ),
-                Spacer(),
-                ElevatedButton(
-                  onPressed: () async {
-                    // Открываем диалог выбора даты
-                    DateTime? picked = await showDatePicker(
-                      context: context,
-                      initialDate: _selectedDate,
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
-                    );
-                    if (picked != null) {
-                      setState(() {
-                        _selectedDate = picked;
-                      });
-                    }
-                  },
-                  child: Text('Выбрать дату'),
-                ),
-              ],
-            ),
-            SizedBox(height: 32),
-
-            // Кнопка сохранения
-            Center(
-              child: ElevatedButton.icon(
-                onPressed: _saveExpense,
-                icon: Icon(Icons.save),
-                label: Text('Сохранить'),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: Size(double.infinity, 50),
+    // Перехватываем системную кнопку «Назад», чтобы вернуть _hasSaved.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return; // уже закрылись — ничего не делаем
+        Navigator.pop(context, _hasSaved);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Добавить трату'),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: 'Закрыть',
+            onPressed: () => Navigator.pop(context, _hasSaved),
+          ),
+        ),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _amountController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Сумма (₽)',
+                  border: OutlineInputBorder(),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<String>(
+                initialValue: _selectedCategory,
+                items: ['fixed', 'personal'].map((category) {
+                  return DropdownMenuItem(
+                    value: category,
+                    child: Text(
+                      category == 'fixed' ? 'Обязательные' : 'Личные',
+                    ),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  setState(() {
+                    _selectedCategory = newValue!;
+                    _selectedSubcategory = _getSubcategories().first;
+                  });
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Категория',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              DropdownButtonFormField<String>(
+                initialValue: _selectedSubcategory,
+                items: _getSubcategories().map((sub) {
+                  return DropdownMenuItem(
+                    value: sub,
+                    child: Text(_translateSubcategory(sub)),
+                  );
+                }).toList(),
+                onChanged: (newValue) {
+                  setState(() {
+                    _selectedSubcategory = newValue!;
+                  });
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Подкатегория',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              TextField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(
+                  labelText: 'Описание (необязательно)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Text(
+                    'Дата: ${_selectedDate.toLocal().toString().split(' ')[0]}',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: () async {
+                      final DateTime? picked = await showDatePicker(
+                        context: context,
+                        initialDate: _selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null && mounted) {
+                        setState(() {
+                          _selectedDate = picked;
+                        });
+                      }
+                    },
+                    child: const Text('Выбрать дату'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
+
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: _saveExpense,
+                  icon: const Icon(Icons.save),
+                  label: const Text('Сохранить'),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // Вспомогательный метод: возвращает список подкатегорий в зависимости от категории
   List<String> _getSubcategories() {
     return _selectedCategory == 'fixed'
         ? fixedSubcategories
         : personalSubcategories;
   }
 
-  // Вспомогательный метод: перевод подкатегорий на русский для отображения
   String _translateSubcategory(String sub) {
     switch (sub) {
-      case 'communal':
-        return 'Коммуналка';
-      case 'products':
-        return 'Продукты';
-      case 'supplies':
-        return 'Расходники';
-      case 'transport':
-        return 'Транспорт';
-      case 'health':
-        return 'Здоровье';
-      case 'education':
-        return 'Образование';
-      case 'restaurant':
-        return 'Ресторан';
-      case 'fastfood':
-        return 'Фастфуд';
-      case 'snacks':
-        return 'Вкусняшки';
-      case 'entertainment':
-        return 'Развлечения';
-      case 'gadgets':
-        return 'Техника';
-      case 'clothes':
-        return 'Одежда';
-      default:
-        return sub;
+      case 'communal': return 'Коммуналка';
+      case 'products': return 'Продукты';
+      case 'supplies': return 'Расходники';
+      case 'transport': return 'Транспорт';
+      case 'health': return 'Здоровье';
+      case 'education': return 'Образование';
+      case 'restaurant': return 'Ресторан';
+      case 'fastfood': return 'Фастфуд';
+      case 'snacks': return 'Вкусняшки';
+      case 'entertainment': return 'Развлечения';
+      case 'gadgets': return 'Техника';
+      case 'clothes': return 'Одежда';
+      default: return sub;
     }
   }
 }

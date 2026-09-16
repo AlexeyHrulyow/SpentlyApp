@@ -199,25 +199,37 @@ class _StatsScreenState extends State<StatsScreen> {
       Colors.deepPurple,
     ];
 
-    final List<String> subcatNames = _subcategoryData.keys.toList();
+    // ← Сортируем подкатегории по убыванию суммы.
+    //   Тогда крупные сектора идут первыми, легенда читается сверху вниз
+    //   от «самого большого» к «самому маленькому».
+    final List<String> subcatNames = _subcategoryData.keys.toList()
+      ..sort((a, b) =>
+          _subcategoryData[b]!.compareTo(_subcategoryData[a]!));
+
     final double total = _subcategoryData.values.reduce((a, b) => a + b);
 
     List<PieChartSectionData> sections = [];
     for (int i = 0; i < subcatNames.length; i++) {
-      String subcat = subcatNames[i];
-      double amount = _subcategoryData[subcat]!;
-      double percentage = (amount / total) * 100;
+      final String subcat = subcatNames[i];
+      final double amount = _subcategoryData[subcat]!;
+      final double percentage = (amount / total) * 100;
+
+      // ← Мелкие сектора (< 4%) подписи не показывают: иначе текст
+      //   накладывается и превращается в кашу. Их данные всё равно
+      //   видны в легенде ниже.
+      final bool showTitle = percentage >= 4;
 
       sections.add(
         PieChartSectionData(
           color: colors[i % colors.length],
           value: amount,
-          title: '${percentage.toStringAsFixed(1)}%',
+          title: showTitle ? '${percentage.toStringAsFixed(1)}%' : '',
           radius: 80,
-          // ← Цвет секторов яркий и не зависит от темы,
-          // поэтому белый текст + тёмная тень читаются всегда.
+          // ← Магия: сдвигаем подпись от центра к внешнему краю.
+          //   0.5 — было по центру, 0.75 — ближе к краю.
+          titlePositionPercentageOffset: 0.75,
           titleStyle: const TextStyle(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.bold,
             color: Colors.white,
             shadows: [
@@ -249,6 +261,10 @@ class _StatsScreenState extends State<StatsScreen> {
           spacing: 12,
           runSpacing: 8,
           children: List.generate(subcatNames.length, (index) {
+            final String subcat = subcatNames[index];
+            final double amount = _subcategoryData[subcat]!;
+            final double percentage = (amount / total) * 100;
+
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -259,8 +275,9 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '${_translateSubcategory(subcatNames[index])} '
-                  '(${_subcategoryData[subcatNames[index]]!.toStringAsFixed(0)}₽)',
+                  '${_translateSubcategory(subcat)} '
+                  '(${amount.toStringAsFixed(0)}₽ · '
+                  '${percentage.toStringAsFixed(1)}%)',
                   style: const TextStyle(fontSize: 12),
                 ),
               ],

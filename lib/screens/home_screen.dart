@@ -9,6 +9,7 @@ import '../providers/theme_provider.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'stats_screen.dart';
+import 'trend_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -260,6 +261,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 _resetFilters();
                 _loadData();
               }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.trending_up),
+            tooltip: 'Динамика по месяцам',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => TrendScreen()),
+              );
             },
           ),
           IconButton(
