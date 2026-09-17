@@ -4,8 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/home_screen.dart';
+import 'services/notification_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await NotificationService.instance.init();
+  await NotificationService.instance.requestPermissions();
+
   runApp(
     ChangeNotifierProvider(
       create: (_) => ThemeProvider(),
@@ -19,12 +25,6 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Material 3 умеет генерировать согласованную палитру из одного seed-цвета.
-    // Одно и то же «семя» (Colors.blue) даёт нам:
-    //   - light-схему:   светлые оттенки синего + тёмный текст
-    //   - dark-схему:    тёмные оттенки синего + светлый текст
-    // Всё это автоматически подхватится в primaryContainer / onPrimaryContainer
-    // и т.д., если мы их используем (а не Colors.blue.shade50).
     final lightScheme = ColorScheme.fromSeed(seedColor: Colors.blue);
     final darkScheme = ColorScheme.fromSeed(
       seedColor: Colors.blue,

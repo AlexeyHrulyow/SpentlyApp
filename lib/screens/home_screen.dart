@@ -11,6 +11,7 @@ import 'edit_expense_screen.dart';
 import 'stats_screen.dart';
 import 'trend_screen.dart';
 import 'data_screen.dart';
+import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -60,6 +61,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
     final budget = prefs.getDouble(budgetKey);
 
+    if (budget != null) {
+      await _checkBudgetThresholds(
+        budget: budget,
+        spent: total,
+        year: _currentYear,
+        month: _currentMonth,
+      );
+    }
+
     if (!mounted) return;
     setState(() {
       _expenses = expenses;
@@ -69,6 +79,48 @@ class _HomeScreenState extends State<HomeScreen> {
       _budget = budget;
       _isLoading = false;
     });
+  }
+
+  /// Показывает уведомление один раз за месяц при достижении 80% и 100%
+  /// бюджета. Флаги хранятся в SharedPreferences, чтобы не спамить
+  /// уведомлениями при каждом _loadData().
+  Future<void> _checkBudgetThresholds({
+    required double budget,
+    required double spent,
+    required int year,
+    required int month,
+  }) async {
+    if (budget <= 0) return;
+    final percent = spent / budget;
+
+    final prefs = await SharedPreferences.getInstance();
+    final key80 = 'budget_notified_80_${year}_${month}';
+    final key100 = 'budget_notified_100_${year}_${month}';
+    final notifId = year * 100 + month; // уникально для месяца/года
+
+    if (percent >= 1.0) {
+      if (prefs.getBool(key100) != true) {
+        await NotificationService.instance.showBudgetNotification(
+          id: notifId * 10 + 1,
+          title: 'Бюджет превышен',
+          body: 'Потрачено ${spent.toStringAsFixed(0)} ₽ из '
+              '${budget.toStringAsFixed(0)} ₽ — бюджет на месяц исчерпан.',
+        );
+        await prefs.setBool(key100, true);
+        await prefs.setBool(key80, true);
+      }
+    } else if (percent >= 0.8) {
+      if (prefs.getBool(key80) != true) {
+        await NotificationService.instance.showBudgetNotification(
+          id: notifId * 10,
+          title: 'Скоро бюджет закончится',
+          body: 'Потрачено уже ${(percent * 100).toStringAsFixed(0)}% '
+              'бюджета (${spent.toStringAsFixed(0)} ₽ из '
+              '${budget.toStringAsFixed(0)} ₽).',
+        );
+        await prefs.setBool(key80, true);
+      }
+    }
   }
 
   void _resetFilters() {
@@ -176,8 +228,17 @@ class _HomeScreenState extends State<HomeScreen> {
       final prefs = await SharedPreferences.getInstance();
       final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
       await prefs.setDouble(budgetKey, result);
+      // Новый бюджет — пороги нужно проверить заново.
+      await prefs.remove('budget_notified_80_${_currentYear}_${_currentMonth}');
+      await prefs.remove('budget_notified_100_${_currentYear}_${_currentMonth}');
       if (!mounted) return;
       setState(() => _budget = result);
+      await _checkBudgetThresholds(
+        budget: result,
+        spent: _total,
+        year: _currentYear,
+        month: _currentMonth,
+      );
     }
   }
 
@@ -458,6 +519,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       final budgetKey =
                           'budget_${_currentYear}_${_currentMonth}';
                       await prefs.remove(budgetKey);
+                      await prefs.remove(
+                          'budget_notified_80_${_currentYear}_${_currentMonth}');
+                      await prefs.remove(
+                          'budget_notified_100_${_currentYear}_${_currentMonth}');
                       if (!mounted) return;
                       setState(() => _budget = null);
                     },
