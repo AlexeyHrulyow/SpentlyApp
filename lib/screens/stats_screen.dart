@@ -2,8 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 import '../database/database_helper.dart';
 import '../models/expense.dart';
+import '../providers/category_provider.dart';
 
 class StatsScreen extends StatefulWidget {
   final int initialYear;
@@ -31,7 +33,6 @@ class _StatsScreenState extends State<StatsScreen> {
 
   int _selectedChartIndex = 0;
 
-  // ← Флаг для PopScope: разрешает фактический pop.
   bool _canPop = false;
 
   @override
@@ -80,9 +81,6 @@ class _StatsScreenState extends State<StatsScreen> {
     _loadData();
   }
 
-  // Возврат с передачей текущих года и месяца на главный экран.
-  // Мы сначала разрешаем pop (setState -> _canPop=true), затем в следующем
-  // кадре вызываем Navigator.pop уже с результатом.
   void _closeWithResult() {
     setState(() => _canPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -96,7 +94,6 @@ class _StatsScreenState extends State<StatsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // PopScope заменил устаревший WillPopScope.
     return PopScope(
       canPop: _canPop,
       onPopInvokedWithResult: (didPop, result) {
@@ -172,6 +169,7 @@ class _StatsScreenState extends State<StatsScreen> {
   // ------------------- КРУГОВАЯ ДИАГРАММА -------------------
   Widget _buildPieChart() {
     final cs = Theme.of(context).colorScheme;
+    final categories = context.read<CategoryProvider>();
 
     if (_subcategoryData.isEmpty) {
       return Center(
@@ -199,9 +197,6 @@ class _StatsScreenState extends State<StatsScreen> {
       Colors.deepPurple,
     ];
 
-    // ← Сортируем подкатегории по убыванию суммы.
-    //   Тогда крупные сектора идут первыми, легенда читается сверху вниз
-    //   от «самого большого» к «самому маленькому».
     final List<String> subcatNames = _subcategoryData.keys.toList()
       ..sort((a, b) =>
           _subcategoryData[b]!.compareTo(_subcategoryData[a]!));
@@ -214,9 +209,6 @@ class _StatsScreenState extends State<StatsScreen> {
       final double amount = _subcategoryData[subcat]!;
       final double percentage = (amount / total) * 100;
 
-      // ← Мелкие сектора (< 4%) подписи не показывают: иначе текст
-      //   накладывается и превращается в кашу. Их данные всё равно
-      //   видны в легенде ниже.
       final bool showTitle = percentage >= 4;
 
       sections.add(
@@ -225,8 +217,6 @@ class _StatsScreenState extends State<StatsScreen> {
           value: amount,
           title: showTitle ? '${percentage.toStringAsFixed(1)}%' : '',
           radius: 80,
-          // ← Магия: сдвигаем подпись от центра к внешнему краю.
-          //   0.5 — было по центру, 0.75 — ближе к краю.
           titlePositionPercentageOffset: 0.75,
           titleStyle: const TextStyle(
             fontSize: 13,
@@ -275,7 +265,7 @@ class _StatsScreenState extends State<StatsScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '${_translateSubcategory(subcat)} '
+                  '${categories.displayNameFor(subcat)} '
                   '(${amount.toStringAsFixed(0)}₽ · '
                   '${percentage.toStringAsFixed(1)}%)',
                   style: const TextStyle(fontSize: 12),
@@ -328,7 +318,6 @@ class _StatsScreenState extends State<StatsScreen> {
           barRods: [
             BarChartRodData(
               toY: amount,
-              // ← primary из темы: синий в light, светлее в dark.
               color: cs.primary,
               width: barWidth,
               borderRadius:
@@ -413,7 +402,6 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   // ------------------- БЛОК ИТОГОВ -------------------
-  // ← Переведён на цвета темы.
   Widget _buildTotals() {
     final cs = Theme.of(context).colorScheme;
 
@@ -482,23 +470,5 @@ class _StatsScreenState extends State<StatsScreen> {
       'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
     ];
     return months[month - 1];
-  }
-
-  String _translateSubcategory(String sub) {
-    switch (sub) {
-      case 'communal': return 'Коммуналка';
-      case 'products': return 'Продукты';
-      case 'supplies': return 'Расходники';
-      case 'transport': return 'Транспорт';
-      case 'health': return 'Здоровье';
-      case 'education': return 'Образование';
-      case 'restaurant': return 'Ресторан';
-      case 'fastfood': return 'Фастфуд';
-      case 'snacks': return 'Вкусняшки';
-      case 'entertainment': return 'Развлечения';
-      case 'gadgets': return 'Техника';
-      case 'clothes': return 'Одежда';
-      default: return sub;
-    }
   }
 }

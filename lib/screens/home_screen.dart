@@ -6,11 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import '../models/expense.dart';
 import '../providers/theme_provider.dart';
+import '../providers/category_provider.dart';
 import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'stats_screen.dart';
 import 'trend_screen.dart';
 import 'data_screen.dart';
+import 'categories_screen.dart';
 import '../services/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -81,9 +83,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  /// Показывает уведомление один раз за месяц при достижении 80% и 100%
-  /// бюджета. Флаги хранятся в SharedPreferences, чтобы не спамить
-  /// уведомлениями при каждом _loadData().
   Future<void> _checkBudgetThresholds({
     required double budget,
     required double spent,
@@ -96,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     final key80 = 'budget_notified_80_${year}_${month}';
     final key100 = 'budget_notified_100_${year}_${month}';
-    final notifId = year * 100 + month; // уникально для месяца/года
+    final notifId = year * 100 + month;
 
     if (percent >= 1.0) {
       if (prefs.getBool(key100) != true) {
@@ -228,9 +227,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final prefs = await SharedPreferences.getInstance();
       final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
       await prefs.setDouble(budgetKey, result);
-      // Новый бюджет — пороги нужно проверить заново.
       await prefs.remove('budget_notified_80_${_currentYear}_${_currentMonth}');
-      await prefs.remove('budget_notified_100_${_currentYear}_${_currentMonth}');
+      await prefs
+          .remove('budget_notified_100_${_currentYear}_${_currentMonth}');
       if (!mounted) return;
       setState(() => _budget = result);
       await _checkBudgetThresholds(
@@ -242,7 +241,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ← Фон прогресс-бара берём из темы, а не хардкодим серый.
   Widget _buildBudgetProgress() {
     if (_budget == null || _budget == 0) return const SizedBox.shrink();
 
@@ -273,7 +271,6 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 4),
           LinearProgressIndicator(
             value: clampedPercent,
-            // ← surfaceContainerHighest: светло-серый в light, тёмно-серый в dark.
             backgroundColor: cs.surfaceContainerHighest,
             color: barColor,
             minHeight: 8,
@@ -286,6 +283,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // watch — чтобы UI обновился после переименования категории.
+    final categories = context.watch<CategoryProvider>();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Spently'),
@@ -331,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => TrendScreen()),
+                MaterialPageRoute(builder: (context) => const TrendScreen()),
               );
             },
           ),
@@ -341,11 +341,23 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () async {
               final result = await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => DataScreen()),
+                MaterialPageRoute(builder: (context) => const DataScreen()),
               );
               if (result == true) {
                 _loadData();
               }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.category_outlined),
+            tooltip: 'Категории',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CategoriesScreen(),
+                ),
+              );
             },
           ),
           IconButton(
@@ -359,16 +371,15 @@ class _HomeScreenState extends State<HomeScreen> {
           : Column(
               children: [
                 _buildSummary(),
-                _buildFilters(),
-                // ← Фильтр считается один раз, а не в каждой итерации ListView.
-                Expanded(child: _buildExpenseList()),
+                _buildFilters(categories),
+                Expanded(child: _buildExpenseList(categories)),
               ],
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           bool? result = await Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => AddExpenseScreen()),
+            MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
           );
           if (result == true) {
             _loadData();
@@ -380,7 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildExpenseList() {
+  Widget _buildExpenseList(CategoryProvider categories) {
     final filtered = _getFilteredExpenses();
     if (filtered.isEmpty) {
       final cs = Theme.of(context).colorScheme;
@@ -393,12 +404,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     return ListView.builder(
       itemCount: filtered.length,
-      itemBuilder: (context, index) => _buildExpenseItem(filtered[index]),
+      itemBuilder: (context, index) =>
+          _buildExpenseItem(filtered[index], categories),
     );
   }
 
-  // ================== СВОДКА ==================
-  // ← Полностью переведена на цвета темы.
   Widget _buildSummary() {
     final cs = Theme.of(context).colorScheme;
     final String monthName = _getMonthName(_currentMonth);
@@ -406,7 +416,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        // primaryContainer: светло-синяя в light, тёмно-синяя в dark.
         color: cs.primaryContainer,
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
       ),
@@ -460,7 +469,6 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 'Обязательные:',
-                // ← onPrimaryContainer с прозрачностью вместо серого.
                 style: TextStyle(
                   fontSize: 14,
                   color: cs.onPrimaryContainer.withValues(alpha: 0.75),
@@ -539,10 +547,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFilters() {
-    final subcategories =
-        _expenses.map((e) => e.subcategory).toSet().toList();
-    subcategories.sort();
+  Widget _buildFilters(CategoryProvider categories) {
+    // Уникальные slug'и, реально встречающиеся в тратах текущего месяца.
+    final subSlugs = _expenses.map((e) => e.subcategory).toSet().toList();
+    subSlugs.sort();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -564,7 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          if (subcategories.isNotEmpty)
+          if (subSlugs.isNotEmpty)
             Row(
               children: [
                 const Text(
@@ -582,10 +590,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         value: null,
                         child: Text('Все'),
                       ),
-                      ...subcategories.map((sub) {
+                      ...subSlugs.map((slug) {
                         return DropdownMenuItem<String>(
-                          value: sub,
-                          child: Text(_translateSubcategory(sub)),
+                          value: slug,
+                          child: Text(categories.displayNameFor(slug)),
                         );
                       }),
                     ],
@@ -612,7 +620,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildExpenseItem(Expense expense) {
+  Widget _buildExpenseItem(Expense expense, CategoryProvider categories) {
     final Color iconColor =
         expense.category == 'fixed' ? Colors.blue : Colors.orange;
     final IconData iconData = expense.category == 'fixed'
@@ -643,13 +651,12 @@ class _HomeScreenState extends State<HomeScreen> {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           subtitle: Text(
-            '${_translateSubcategory(expense.subcategory)}   '
+            '${categories.displayNameFor(expense.subcategory)}   '
             '${expense.date.toLocal().toString().split(' ')[0]}',
           ),
           trailing: expense.description.isNotEmpty
               ? Tooltip(
                   message: expense.description,
-                  // ← без цвета: наследуется из темы (было Colors.grey).
                   child: const Icon(Icons.info_outline),
                 )
               : null,
@@ -675,23 +682,5 @@ class _HomeScreenState extends State<HomeScreen> {
       'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
     ];
     return months[month - 1];
-  }
-
-  String _translateSubcategory(String sub) {
-    switch (sub) {
-      case 'communal': return 'Коммуналка';
-      case 'products': return 'Продукты';
-      case 'supplies': return 'Расходники';
-      case 'transport': return 'Транспорт';
-      case 'health': return 'Здоровье';
-      case 'education': return 'Образование';
-      case 'restaurant': return 'Ресторан';
-      case 'fastfood': return 'Фастфуд';
-      case 'snacks': return 'Вкусняшки';
-      case 'entertainment': return 'Развлечения';
-      case 'gadgets': return 'Техника';
-      case 'clothes': return 'Одежда';
-      default: return sub;
-    }
   }
 }

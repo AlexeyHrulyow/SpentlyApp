@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/category_provider.dart';
 import 'screens/home_screen.dart';
 import 'services/notification_service.dart';
 
@@ -13,8 +14,13 @@ Future<void> main() async {
   await NotificationService.instance.requestPermissions();
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ThemeProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        // `..load()` — каскадный вызов: создаём и сразу грузим категории.
+        // Аналог в C#: new CategoryProvider().Load(); с отбрасыванием результата.
+        ChangeNotifierProvider(create: (_) => CategoryProvider()..load()),
+      ],
       child: const MyApp(),
     ),
   );

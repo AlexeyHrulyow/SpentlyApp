@@ -1,8 +1,11 @@
 // lib/screens/add_expense_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:spently/models/category.dart';
 import '../models/expense.dart';
 import '../database/database_helper.dart';
+import '../providers/category_provider.dart';
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -16,31 +19,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _descriptionController = TextEditingController();
 
   String _selectedCategory = 'fixed';
-  String _selectedSubcategory = 'communal';
+  String? _selectedSubcategory; // null — пока провайдер не загружен
   DateTime _selectedDate = DateTime.now();
 
-  // Флаг: сохранили ли мы хотя бы одну трату за время работы экрана.
-  // Его вернём на главный экран через Navigator.pop, чтобы тот решил,
-  // обновлять ли данные.
   bool _hasSaved = false;
-
-  final List<String> fixedSubcategories = [
-    'communal',
-    'products',
-    'supplies',
-    'transport',
-    'health',
-    'education',
-  ];
-
-  final List<String> personalSubcategories = [
-    'restaurant',
-    'fastfood',
-    'snacks',
-    'entertainment',
-    'gadgets',
-    'clothes',
-  ];
 
   @override
   void dispose() {
@@ -49,16 +31,16 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     super.dispose();
   }
 
-  // Сбрасываем форму в исходное состояние.
-  void _resetForm() {
+  void _resetForm(List<ExpenseCategory> fixedCats) {
     _amountController.clear();
     _descriptionController.clear();
     _selectedCategory = 'fixed';
-    _selectedSubcategory = fixedSubcategories.first;
+    _selectedSubcategory = fixedCats.isEmpty ? null : fixedCats.first.name;
     _selectedDate = DateTime.now();
   }
 
   Future<void> _saveExpense() async {
+    if (_selectedSubcategory == null) return;
     final double amount = double.tryParse(_amountController.text) ?? 0.0;
     if (amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -70,19 +52,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     final Expense newExpense = Expense(
       amount: amount,
       category: _selectedCategory,
-      subcategory: _selectedSubcategory,
+      subcategory: _selectedSubcategory!,
       description: _descriptionController.text,
       date: _selectedDate,
     );
 
     await DatabaseHelper.instance.insertTransaction(newExpense);
-
-    // После await виджет мог быть удалён — обязательно проверяем.
     if (!mounted) return;
 
+    final provider = context.read<CategoryProvider>();
     setState(() {
       _hasSaved = true;
-      _resetForm();
+      _resetForm(provider.byType('fixed'));
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -95,11 +76,35 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Перехватываем системную кнопку «Назад», чтобы вернуть _hasSaved.
+    final provider = context.watch<CategoryProvider>();
+
+    if (!provider.isLoaded) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Добавить трату')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final subcategories = provider.byType(_selectedCategory);
+
+    // Однократная инициализация при первом открытии экрана.
+    // setState тут не нужен — модифицируем поля до return, следующий
+    // build уже увидит новые значения.
+    if (_selectedSubcategory == null && subcategories.isNotEmpty) {
+      _selectedSubcategory = subcategories.first.name;
+    }
+    // Если выбранная подкатегория пропала (например, категорию только что
+    // удалили в другом экране) — сбрасываем на первую доступную.
+    if (_selectedSubcategory != null &&
+        !subcategories.any((c) => c.name == _selectedSubcategory)) {
+      _selectedSubcategory =
+          subcategories.isEmpty ? null : subcategories.first.name;
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return; // уже закрылись — ничего не делаем
+        if (didPop) return;
         Navigator.pop(context, _hasSaved);
       },
       child: Scaffold(
@@ -128,18 +133,22 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
               DropdownButtonFormField<String>(
                 initialValue: _selectedCategory,
-                items: ['fixed', 'personal'].map((category) {
-                  return DropdownMenuItem(
-                    value: category,
-                    child: Text(
-                      category == 'fixed' ? 'Обязательные' : 'Личные',
-                    ),
-                  );
-                }).toList(),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'fixed',
+                    child: Text('Обязательные'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'personal',
+                    child: Text('Личные'),
+                  ),
+                ],
                 onChanged: (newValue) {
                   setState(() {
                     _selectedCategory = newValue!;
-                    _selectedSubcategory = _getSubcategories().first;
+                    final list = provider.byType(_selectedCategory);
+                    _selectedSubcategory =
+                        list.isEmpty ? null : list.first.name;
                   });
                 },
                 decoration: const InputDecoration(
@@ -151,17 +160,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
               DropdownButtonFormField<String>(
                 initialValue: _selectedSubcategory,
-                items: _getSubcategories().map((sub) {
+                items: subcategories.map((c) {
                   return DropdownMenuItem(
-                    value: sub,
-                    child: Text(_translateSubcategory(sub)),
+                    value: c.name,
+                    child: Text(c.displayName),
                   );
                 }).toList(),
-                onChanged: (newValue) {
-                  setState(() {
-                    _selectedSubcategory = newValue!;
-                  });
-                },
+                onChanged: subcategories.isEmpty
+                    ? null
+                    : (newValue) {
+                        setState(() => _selectedSubcategory = newValue);
+                      },
                 decoration: const InputDecoration(
                   labelText: 'Подкатегория',
                   border: OutlineInputBorder(),
@@ -194,9 +203,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                         lastDate: DateTime.now(),
                       );
                       if (picked != null && mounted) {
-                        setState(() {
-                          _selectedDate = picked;
-                        });
+                        setState(() => _selectedDate = picked);
                       }
                     },
                     child: const Text('Выбрать дату'),
@@ -220,29 +227,5 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         ),
       ),
     );
-  }
-
-  List<String> _getSubcategories() {
-    return _selectedCategory == 'fixed'
-        ? fixedSubcategories
-        : personalSubcategories;
-  }
-
-  String _translateSubcategory(String sub) {
-    switch (sub) {
-      case 'communal': return 'Коммуналка';
-      case 'products': return 'Продукты';
-      case 'supplies': return 'Расходники';
-      case 'transport': return 'Транспорт';
-      case 'health': return 'Здоровье';
-      case 'education': return 'Образование';
-      case 'restaurant': return 'Ресторан';
-      case 'fastfood': return 'Фастфуд';
-      case 'snacks': return 'Вкусняшки';
-      case 'entertainment': return 'Развлечения';
-      case 'gadgets': return 'Техника';
-      case 'clothes': return 'Одежда';
-      default: return sub;
-    }
   }
 }

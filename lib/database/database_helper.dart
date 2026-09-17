@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../models/expense.dart';
 import '../models/monthly_stats.dart';
+import '../models/category.dart';
 
 class DatabaseHelper {
   DatabaseHelper._privateConstructor();
@@ -23,10 +24,30 @@ class DatabaseHelper {
   Future<Database> _initDatabase() async {
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
     String path = join(documentsDirectory.path, 'spently.db');
-    return await openDatabase(path, version: 1, onCreate: _onCreate);
+    return await openDatabase(
+      path,
+      version: 2,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
+  // ==================== СХЕМА ====================
+
   Future<void> _onCreate(Database db, int version) async {
+    await _createTransactionsTable(db);
+    await _createCategoriesTable(db);
+    await _seedDefaultCategories(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createCategoriesTable(db);
+      await _seedDefaultCategories(db);
+    }
+  }
+
+  Future<void> _createTransactionsTable(Database db) async {
     await db.execute('''
       CREATE TABLE transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,7 +60,46 @@ class DatabaseHelper {
     ''');
   }
 
-  // ========== CRUD ==========
+  Future<void> _createCategoriesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  Future<void> _seedDefaultCategories(Database db) async {
+    // [name (slug), display_name, type]
+    const defaults = <List<String>>[
+      ['communal',      'Коммуналка',  'fixed'],
+      ['products',      'Продукты',    'fixed'],
+      ['supplies',      'Расходники',  'fixed'],
+      ['transport',     'Транспорт',   'fixed'],
+      ['health',        'Здоровье',    'fixed'],
+      ['education',     'Образование', 'fixed'],
+      ['restaurant',    'Ресторан',    'personal'],
+      ['fastfood',      'Фастфуд',     'personal'],
+      ['snacks',        'Вкусняшки',   'personal'],
+      ['entertainment', 'Развлечения', 'personal'],
+      ['gadgets',       'Техника',     'personal'],
+      ['clothes',       'Одежда',      'personal'],
+    ];
+    for (int i = 0; i < defaults.length; i++) {
+      final row = defaults[i];
+      await db.insert('categories', {
+        'name': row[0],
+        'display_name': row[1],
+        'type': row[2],
+        'sort_order': i,
+      });
+    }
+  }
+
+  // ==================== TRANSACTIONS CRUD ====================
 
   Future<int> insertTransaction(Expense expense) async {
     Database db = await database;
@@ -115,32 +175,61 @@ class DatabaseHelper {
     return totals;
   }
 
-  /// Полная очистка таблицы. Используется при восстановлении из бэкапа
-  /// в режиме «Заменить всё».
   Future<void> deleteAllTransactions() async {
     final db = await database;
     await db.delete('transactions');
   }
 
-  // ========== Агрегат по месяцам для экрана «Динамика» ==========
+  // ==================== CATEGORIES CRUD ====================
 
-  /// Возвращает список месяцев (в порядке от старого к новому),
-  /// включая пустые (там, где не было трат, все суммы = 0).
-  ///
-  /// [monthsBack] — сколько последних месяцев включая текущий.
+  Future<List<ExpenseCategory>> getAllCategories() async {
+    final db = await database;
+    final maps = await db.query(
+      'categories',
+      orderBy: 'type ASC, sort_order ASC, id ASC',
+    );
+    return maps.map(ExpenseCategory.fromMap).toList();
+  }
+
+  Future<int> insertCategory(ExpenseCategory category) async {
+    final db = await database;
+    final map = category.toMap()..remove('id');
+    return db.insert('categories', map);
+  }
+
+  Future<int> updateCategory(ExpenseCategory category) async {
+    final db = await database;
+    return db.update(
+      'categories',
+      category.toMap(),
+      where: 'id = ?',
+      whereArgs: [category.id],
+    );
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await database;
+    return db.delete('categories', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<int> countTransactionsWithSubcategory(String name) async {
+    final db = await database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM transactions WHERE subcategory = ?',
+      [name],
+    );
+    return (result.first['c'] as int?) ?? 0;
+  }
+
+  // ==================== АГРЕГАТ ПО МЕСЯЦАМ ====================
+
   Future<List<MonthlyStats>> getMonthlyStats({required int monthsBack}) async {
     final Database db = await database;
     final DateTime now = DateTime.now();
 
-    // Дата начала: первое число месяца за (monthsBack - 1) месяцев назад.
-    // DateTime в Dart сам нормализует выходящие за границы года значения,
-    // поэтому DateTime(2026, -3, 1) корректно превратится в 2025-10-01.
     final DateTime start = DateTime(now.year, now.month - monthsBack + 1, 1);
     final String startDate = start.toIso8601String();
 
-    // Один запрос группирует всё по году-месяцу и сразу считает
-    // три суммы: общую, обязательные, личные. В Python это был бы
-    // аналог pandas.groupby(...).agg({'amount': ['sum']}).
     final List<Map<String, dynamic>> rows = await db.rawQuery('''
       SELECT
         strftime('%Y', date) AS year,
@@ -154,9 +243,6 @@ class DatabaseHelper {
       ORDER BY year ASC, month ASC
     ''', [startDate]);
 
-    // Раскладываем результаты в словарь по ключу 'YYYY-MM'.
-    // strftime('%m') возвращает строку с ведущим нулём ('03'), поэтому
-    // ключ '2026-03' сортируется лексикографически так же, как хронологически.
     final Map<String, MonthlyStats> byKey = {};
     for (final row in rows) {
       final int y = int.parse(row['year'] as String);
@@ -171,9 +257,6 @@ class DatabaseHelper {
       );
     }
 
-    // Строим полный список за monthsBack месяцев от старого к новому.
-    // Для месяцев без записей подставляем нули — иначе график будет
-    // «прыгать» с пропущенными точками.
     final List<MonthlyStats> result = [];
     for (int i = monthsBack - 1; i >= 0; i--) {
       final DateTime d = DateTime(now.year, now.month - i, 1);
