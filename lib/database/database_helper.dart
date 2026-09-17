@@ -115,6 +115,13 @@ class DatabaseHelper {
     return totals;
   }
 
+  /// Полная очистка таблицы. Используется при восстановлении из бэкапа
+  /// в режиме «Заменить всё».
+  Future<void> deleteAllTransactions() async {
+    final db = await database;
+    await db.delete('transactions');
+  }
+
   // ========== Агрегат по месяцам для экрана «Динамика» ==========
 
   /// Возвращает список месяцев (в порядке от старого к новому),

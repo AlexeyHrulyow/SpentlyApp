@@ -10,6 +10,7 @@ import 'add_expense_screen.dart';
 import 'edit_expense_screen.dart';
 import 'stats_screen.dart';
 import 'trend_screen.dart';
+import 'data_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -271,6 +272,19 @@ class _HomeScreenState extends State<HomeScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => TrendScreen()),
               );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.storage),
+            tooltip: 'Данные и бэкапы',
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => DataScreen()),
+              );
+              if (result == true) {
+                _loadData();
+              }
             },
           ),
           IconButton(
