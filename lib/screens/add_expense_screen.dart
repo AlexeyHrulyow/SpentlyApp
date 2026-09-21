@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:spently/models/category.dart';
 import '../models/expense.dart';
+import '../models/category_icons.dart';
 import '../database/database_helper.dart';
 import '../providers/category_provider.dart';
 
@@ -19,7 +20,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _descriptionController = TextEditingController();
 
   String _selectedCategory = 'fixed';
-  String? _selectedSubcategory; // null — пока провайдер не загружен
+  String? _selectedSubcategory;
   DateTime _selectedDate = DateTime.now();
 
   bool _hasSaved = false;
@@ -87,14 +88,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
     final subcategories = provider.byType(_selectedCategory);
 
-    // Однократная инициализация при первом открытии экрана.
-    // setState тут не нужен — модифицируем поля до return, следующий
-    // build уже увидит новые значения.
     if (_selectedSubcategory == null && subcategories.isNotEmpty) {
       _selectedSubcategory = subcategories.first.name;
     }
-    // Если выбранная подкатегория пропала (например, категорию только что
-    // удалили в другом экране) — сбрасываем на первую доступную.
     if (_selectedSubcategory != null &&
         !subcategories.any((c) => c.name == _selectedSubcategory)) {
       _selectedSubcategory =
@@ -163,7 +159,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 items: subcategories.map((c) {
                   return DropdownMenuItem(
                     value: c.name,
-                    child: Text(c.displayName),
+                    child: Row(
+                      children: [
+                        Icon(iconForCode(c.iconCode), size: 20),
+                        const SizedBox(width: 8),
+                        Text(c.displayName),
+                      ],
+                    ),
                   );
                 }).toList(),
                 onChanged: subcategories.isEmpty

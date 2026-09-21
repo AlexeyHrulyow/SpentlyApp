@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/expense.dart';
+import '../models/category_icons.dart';
 import '../database/database_helper.dart';
 import '../providers/category_provider.dart';
 
@@ -107,8 +108,6 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
 
     final subcategories = provider.byType(_selectedCategory);
 
-    // Если slug траты отсутствует в списке (категорию удалили в другом
-    // экране) — добавляем fallback-элемент, иначе Dropdown заассертит.
     final bool slugMissing =
         !subcategories.any((c) => c.name == _selectedSubcategory);
 
@@ -171,15 +170,30 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                 if (slugMissing)
                   DropdownMenuItem(
                     value: _selectedSubcategory,
-                    child: Text(
-                      '${provider.displayNameFor(_selectedSubcategory)} '
-                      '(удалена)',
+                    child: Row(
+                      children: [
+                        Icon(
+                          provider.iconOf(_selectedSubcategory),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${provider.displayNameFor(_selectedSubcategory)} '
+                          '(удалена)',
+                        ),
+                      ],
                     ),
                   ),
                 ...subcategories.map((c) {
                   return DropdownMenuItem(
                     value: c.name,
-                    child: Text(c.displayName),
+                    child: Row(
+                      children: [
+                        Icon(iconForCode(c.iconCode), size: 20),
+                        const SizedBox(width: 8),
+                        Text(c.displayName),
+                      ],
+                    ),
                   );
                 }),
               ],

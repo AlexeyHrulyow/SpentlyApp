@@ -602,7 +602,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       ...subSlugs.map((slug) {
                         return DropdownMenuItem<String>(
                           value: slug,
-                          child: Text(categories.displayNameFor(slug)),
+                          child: Row(
+                            children: [
+                              Icon(categories.iconOf(slug), size: 18),
+                              const SizedBox(width: 8),
+                              Text(categories.displayNameFor(slug)),
+                            ],
+                          ),
                         );
                       }),
                     ],
@@ -632,9 +638,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildExpenseItem(Expense expense, CategoryProvider categories) {
     final Color iconColor =
         expense.category == 'fixed' ? Colors.blue : Colors.orange;
-    final IconData iconData = expense.category == 'fixed'
-        ? Icons.home_work
-        : Icons.person_outline;
+    // Иконку берём из категории (провайдер ищет по slug; для архивных
+    // категорий — тоже найдёт, т.к. провайдер хранит их в _categories).
+    final IconData iconData = categories.iconOf(expense.subcategory);
 
     return Dismissible(
       key: Key(expense.id.toString()),

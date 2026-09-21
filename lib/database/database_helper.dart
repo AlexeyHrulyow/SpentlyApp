@@ -26,7 +26,7 @@ class DatabaseHelper {
     String path = join(documentsDirectory.path, 'spently.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -42,6 +42,10 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
+      // Пришли с v1: таблицы categories вообще нет.
+      // _createCategoriesTable создаёт её в АКТУАЛЬНОЙ форме — со всеми
+      // колонками, включая is_archived и icon_code. Дальнейшие ALTER
+      // не нужны, поэтому return.
       await _createCategoriesTable(db);
       await _seedDefaultCategories(db);
       return;
@@ -50,6 +54,35 @@ class DatabaseHelper {
       await db.execute(
         'ALTER TABLE categories ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0',
       );
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+        "ALTER TABLE categories ADD COLUMN icon_code TEXT NOT NULL DEFAULT 'label'",
+      );
+      // Проставляем осмысленные иконки для дефолтных категорий,
+      // чтобы у уже существующих юзеров список не был однообразным.
+      const iconMap = <String, String>{
+        'communal':      'home_work',
+        'products':      'shopping_cart',
+        'supplies':      'cleaning',
+        'transport':     'directions_bus',
+        'health':        'medical_services',
+        'education':     'school',
+        'restaurant':    'restaurant',
+        'fastfood':      'fastfood',
+        'snacks':        'cookie',
+        'entertainment': 'movie',
+        'gadgets':       'phone_android',
+        'clothes':       'checkroom',
+      };
+      for (final entry in iconMap.entries) {
+        await db.update(
+          'categories',
+          {'icon_code': entry.value},
+          where: 'name = ?',
+          whereArgs: [entry.key],
+        );
+      }
     }
   }
 
@@ -74,25 +107,27 @@ class DatabaseHelper {
         display_name TEXT NOT NULL,
         type TEXT NOT NULL,
         sort_order INTEGER NOT NULL DEFAULT 0,
-        is_archived INTEGER NOT NULL DEFAULT 0
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        icon_code TEXT NOT NULL DEFAULT 'label'
       )
     ''');
   }
 
   Future<void> _seedDefaultCategories(Database db) async {
+    // [name (slug), display_name, type, icon_code]
     const defaults = <List<String>>[
-      ['communal',      'Коммуналка',  'fixed'],
-      ['products',      'Продукты',    'fixed'],
-      ['supplies',      'Расходники',  'fixed'],
-      ['transport',     'Транспорт',   'fixed'],
-      ['health',        'Здоровье',    'fixed'],
-      ['education',     'Образование', 'fixed'],
-      ['restaurant',    'Ресторан',    'personal'],
-      ['fastfood',      'Фастфуд',     'personal'],
-      ['snacks',        'Вкусняшки',   'personal'],
-      ['entertainment', 'Развлечения', 'personal'],
-      ['gadgets',       'Техника',     'personal'],
-      ['clothes',       'Одежда',      'personal'],
+      ['communal',      'Коммуналка',  'fixed',    'home_work'],
+      ['products',      'Продукты',    'fixed',    'shopping_cart'],
+      ['supplies',      'Расходники',  'fixed',    'cleaning'],
+      ['transport',     'Транспорт',   'fixed',    'directions_bus'],
+      ['health',        'Здоровье',    'fixed',    'medical_services'],
+      ['education',     'Образование', 'fixed',    'school'],
+      ['restaurant',    'Ресторан',    'personal', 'restaurant'],
+      ['fastfood',      'Фастфуд',     'personal', 'fastfood'],
+      ['snacks',        'Вкусняшки',   'personal', 'cookie'],
+      ['entertainment', 'Развлечения', 'personal', 'movie'],
+      ['gadgets',       'Техника',     'personal', 'phone_android'],
+      ['clothes',       'Одежда',      'personal', 'checkroom'],
     ];
     for (int i = 0; i < defaults.length; i++) {
       final row = defaults[i];
@@ -100,6 +135,7 @@ class DatabaseHelper {
         'name': row[0],
         'display_name': row[1],
         'type': row[2],
+        'icon_code': row[3],
         'sort_order': i,
       });
     }
@@ -188,8 +224,6 @@ class DatabaseHelper {
 
   // ==================== CATEGORIES CRUD ====================
 
-  /// Возвращает ВСЕ категории, включая архивные.
-  /// Фильтрация (только активные для UI выбора) — на стороне Provider.
   Future<List<ExpenseCategory>> getAllCategories() async {
     final db = await database;
     final maps = await db.query(
@@ -215,9 +249,6 @@ class DatabaseHelper {
     );
   }
 
-  /// Мягкое удаление: помечаем is_archived = 1.
-  /// Строка остаётся в БД, её display_name используется для отображения
-  /// старых трат. Из UI-списков категория пропадает.
   Future<int> archiveCategory(int id) async {
     final db = await database;
     return db.update(
