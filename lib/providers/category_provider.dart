@@ -5,20 +5,24 @@ import '../database/database_helper.dart';
 import '../models/category.dart';
 
 /// Кэш категорий в памяти + CRUD-обёртка над DatabaseHelper.
-/// Регистрируется в main.dart как ChangeNotifierProvider.
 class CategoryProvider extends ChangeNotifier {
   final List<ExpenseCategory> _categories = [];
   bool _loaded = false;
 
-  List<ExpenseCategory> get all => List.unmodifiable(_categories);
+  /// Активные (не архивные) категории.
+  List<ExpenseCategory> get all =>
+      _categories.where((c) => !c.isArchived).toList();
+
   bool get isLoaded => _loaded;
 
-  /// Категории одного типа ('fixed' или 'personal').
-  List<ExpenseCategory> byType(String type) =>
-      _categories.where((c) => c.type == type).toList();
+  /// Активные категории указанного типа ('fixed' | 'personal').
+  List<ExpenseCategory> byType(String type) => _categories
+      .where((c) => c.type == type && !c.isArchived)
+      .toList();
 
-  /// slug → отображаемое имя. Если slug неизвестен (категорию удалили,
-  /// а старая трата осталась) — возвращаем сам slug, чтобы UI не падал.
+  /// slug → отображаемое имя. Работает и для архивных категорий:
+  /// старая трата с удалённой категорией покажет своё прежнее имя.
+  /// Если slug вообще неизвестен — возвращаем его самого, чтобы UI не падал.
   String displayNameFor(String slug) {
     for (final c in _categories) {
       if (c.name == slug) return c.displayName;
@@ -35,8 +39,6 @@ class CategoryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Создание новой категории. `name` генерируется автоматически —
-  /// юзер вводит только отображаемое имя.
   Future<void> add({
     required String displayName,
     required String type,
@@ -58,8 +60,9 @@ class CategoryProvider extends ChangeNotifier {
     await load();
   }
 
+  /// Мягкое удаление. Транзакции со старым slug не трогаем.
   Future<void> delete(int id) async {
-    await DatabaseHelper.instance.deleteCategory(id);
+    await DatabaseHelper.instance.archiveCategory(id);
     await load();
   }
 

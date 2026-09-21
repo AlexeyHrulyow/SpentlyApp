@@ -6,8 +6,6 @@ import 'package:provider/provider.dart';
 import '../models/category.dart';
 import '../providers/category_provider.dart';
 
-/// CRUD-экран для управления подкатегориями трат.
-/// Читает / пишет через CategoryProvider (кэш в памяти + БД).
 class CategoriesScreen extends StatelessWidget {
   const CategoriesScreen({super.key});
 
@@ -36,8 +34,6 @@ class CategoriesScreen extends StatelessWidget {
       ),
     );
   }
-
-  // ---------- секция ----------
 
   Widget _buildSection(
     BuildContext context,
@@ -80,8 +76,6 @@ class CategoriesScreen extends StatelessWidget {
     return ListTile(
       leading: const Icon(Icons.label_outline),
       title: Text(cat.displayName),
-      // Служебный slug серым мелким шрифтом — чтобы было видно,
-      // какой именно ключ уйдёт в transactions.subcategory.
       subtitle: Text(
         cat.name,
         style: const TextStyle(fontSize: 11),
@@ -104,15 +98,11 @@ class CategoriesScreen extends StatelessWidget {
     );
   }
 
-  // ---------- создание ----------
-
   Future<void> _showAddDialog(BuildContext context) async {
     final controller = TextEditingController();
     String selectedType = 'fixed';
     final provider = context.read<CategoryProvider>();
 
-    // StatefulBuilder — чтобы переключатель типа внутри AlertDialog
-    // мог вызывать setState только для себя, не перестраивая весь экран.
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -173,8 +163,6 @@ class CategoriesScreen extends StatelessWidget {
     controller.dispose();
   }
 
-  // ---------- переименование ----------
-
   Future<void> _showEditDialog(
     BuildContext context,
     CategoryProvider provider,
@@ -212,14 +200,12 @@ class CategoriesScreen extends StatelessWidget {
     );
 
     if (result == true) {
-      // copyWith — изменяем только displayName, name (slug) остаётся,
-      // поэтому старые траты не «отвяжутся».
       await provider.update(cat.copyWith(displayName: controller.text.trim()));
     }
     controller.dispose();
   }
 
-  // ---------- удаление ----------
+  // ---------- удаление (архивирование) ----------
 
   Future<void> _confirmDelete(
     BuildContext context,
@@ -231,32 +217,22 @@ class CategoriesScreen extends StatelessWidget {
     final count = await provider.countUsages(cat.name);
     if (!context.mounted) return;
 
-    // Защита от удаления используемой категории.
-    if (count > 0) {
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Нельзя удалить'),
-          content: Text(
-            'К категории «${cat.displayName}» привязано $count трат. '
-            'Сначала удали или измени эти траты.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
+    // Разный текст в зависимости от того, есть ли привязанные траты.
+    final String message;
+    if (count == 0) {
+      message = '«${cat.displayName}» будет удалена из списка выбора.';
+    } else {
+      final String word = _pluralizeRecords(count);
+      message = 'У категории «${cat.displayName}» уже есть $count $word.\n\n'
+          'Категория пропадёт из списка выбора для новых трат, но '
+          '$count $word сохранят её название — ничего не потеряется.';
     }
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Удалить категорию?'),
-        content: Text('«${cat.displayName}» будет удалена.'),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -276,5 +252,16 @@ class CategoriesScreen extends StatelessWidget {
     if (confirmed == true) {
       await provider.delete(cat.id!);
     }
+  }
+
+  // '1 запись', '2 записи', '5 записей' — простое правило для русского.
+  String _pluralizeRecords(int n) {
+    final mod10 = n % 10;
+    final mod100 = n % 100;
+    if (mod10 == 1 && mod100 != 11) return 'запись';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return 'записи';
+    }
+    return 'записей';
   }
 }

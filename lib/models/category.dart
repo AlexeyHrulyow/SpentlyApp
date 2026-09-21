@@ -1,17 +1,17 @@
 // lib/models/category.dart
 
 /// Подкатегория трат. Хранится в таблице `categories`.
-/// В `transactions.subcategory` лежит `name` — стабильный внутренний ключ,
-/// который НЕ меняется при переименовании категории пользователем.
 ///
-/// ⚠️ Название класса — ExpenseCategory, а не Category: во Flutter уже есть
-/// аннотация `Category` из package:flutter/foundation.dart, и они конфликтуют.
+/// `isArchived == true` означает «мягко удалена»: она больше не показывается
+/// в списках выбора, но её `displayName` сохраняется, чтобы старые траты
+/// продолжали отображаться человекочитаемо.
 class ExpenseCategory {
   final int? id;
   final String name;        // 'communal', 'custom_1712345678901', ... — ключ
   final String displayName; // 'Коммуналка', 'Еда' — то, что видит юзер
   final String type;        // 'fixed' | 'personal'
   final int sortOrder;
+  final bool isArchived;
 
   const ExpenseCategory({
     this.id,
@@ -19,6 +19,7 @@ class ExpenseCategory {
     required this.displayName,
     required this.type,
     this.sortOrder = 0,
+    this.isArchived = false,
   });
 
   Map<String, dynamic> toMap() => {
@@ -27,6 +28,7 @@ class ExpenseCategory {
         'display_name': displayName,
         'type': type,
         'sort_order': sortOrder,
+        'is_archived': isArchived ? 1 : 0,
       };
 
   factory ExpenseCategory.fromMap(Map<String, dynamic> map) => ExpenseCategory(
@@ -35,6 +37,7 @@ class ExpenseCategory {
         displayName: map['display_name'] as String,
         type: map['type'] as String,
         sortOrder: (map['sort_order'] as int?) ?? 0,
+        isArchived: (map['is_archived'] as int? ?? 0) == 1,
       );
 
   ExpenseCategory copyWith({
@@ -43,6 +46,7 @@ class ExpenseCategory {
     String? displayName,
     String? type,
     int? sortOrder,
+    bool? isArchived,
   }) =>
       ExpenseCategory(
         id: id ?? this.id,
@@ -50,5 +54,6 @@ class ExpenseCategory {
         displayName: displayName ?? this.displayName,
         type: type ?? this.type,
         sortOrder: sortOrder ?? this.sortOrder,
+        isArchived: isArchived ?? this.isArchived,
       );
 }

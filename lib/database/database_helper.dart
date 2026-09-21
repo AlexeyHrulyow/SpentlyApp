@@ -26,7 +26,7 @@ class DatabaseHelper {
     String path = join(documentsDirectory.path, 'spently.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -44,6 +44,12 @@ class DatabaseHelper {
     if (oldVersion < 2) {
       await _createCategoriesTable(db);
       await _seedDefaultCategories(db);
+      return;
+    }
+    if (oldVersion < 3) {
+      await db.execute(
+        'ALTER TABLE categories ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0',
+      );
     }
   }
 
@@ -67,13 +73,13 @@ class DatabaseHelper {
         name TEXT NOT NULL UNIQUE,
         display_name TEXT NOT NULL,
         type TEXT NOT NULL,
-        sort_order INTEGER NOT NULL DEFAULT 0
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_archived INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
 
   Future<void> _seedDefaultCategories(Database db) async {
-    // [name (slug), display_name, type]
     const defaults = <List<String>>[
       ['communal',      'Коммуналка',  'fixed'],
       ['products',      'Продукты',    'fixed'],
@@ -182,6 +188,8 @@ class DatabaseHelper {
 
   // ==================== CATEGORIES CRUD ====================
 
+  /// Возвращает ВСЕ категории, включая архивные.
+  /// Фильтрация (только активные для UI выбора) — на стороне Provider.
   Future<List<ExpenseCategory>> getAllCategories() async {
     final db = await database;
     final maps = await db.query(
@@ -207,9 +215,17 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> deleteCategory(int id) async {
+  /// Мягкое удаление: помечаем is_archived = 1.
+  /// Строка остаётся в БД, её display_name используется для отображения
+  /// старых трат. Из UI-списков категория пропадает.
+  Future<int> archiveCategory(int id) async {
     final db = await database;
-    return db.delete('categories', where: 'id = ?', whereArgs: [id]);
+    return db.update(
+      'categories',
+      {'is_archived': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<int> countTransactionsWithSubcategory(String name) async {

@@ -171,7 +171,10 @@ class _EditExpenseScreenState extends State<EditExpenseScreen> {
                 if (slugMissing)
                   DropdownMenuItem(
                     value: _selectedSubcategory,
-                    child: Text('$_selectedSubcategory (удалена)'),
+                    child: Text(
+                      '${provider.displayNameFor(_selectedSubcategory)} '
+                      '(удалена)',
+                    ),
                   ),
                 ...subcategories.map((c) {
                   return DropdownMenuItem(
