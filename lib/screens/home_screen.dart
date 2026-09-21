@@ -144,8 +144,23 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadData();
   }
 
+  // ---------- УДАЛЕНИЕ ТРАТЫ ----------
+
+  /// Запись в БД + SnackBar. Вызывается из onDismissed ПОСЛЕ того,
+  /// как элемент уже удалён из локального списка синхронно.
   Future<void> _deleteExpense(int id) async {
-    bool? confirm = await showDialog(
+    await DatabaseHelper.instance.deleteTransaction(id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Трата удалена')),
+    );
+  }
+
+  /// Диалог подтверждения. Возвращает true, если юзер подтвердил удаление.
+  /// Вызывается из Dismissible.confirmDismiss — ДО того, как элемент
+  /// «улетит» из списка.
+  Future<bool> _confirmDeleteExpense() async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Удалить трату?'),
@@ -157,19 +172,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Удалить'),
+            child: const Text(
+              'Удалить',
+              style: TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
     );
-    if (confirm == true) {
-      await DatabaseHelper.instance.deleteTransaction(id);
-      _loadData();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Трата удалена')),
-      );
-    }
+    return result == true;
   }
 
   List<Expense> _getFilteredExpenses() {
@@ -283,7 +294,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // watch — чтобы UI обновился после переименования категории.
     final categories = context.watch<CategoryProvider>();
 
     return Scaffold(
@@ -548,7 +558,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildFilters(CategoryProvider categories) {
-    // Уникальные slug'и, реально встречающиеся в тратах текущего месяца.
     final subSlugs = _expenses.map((e) => e.subcategory).toSet().toList();
     subSlugs.sort();
 
@@ -636,9 +645,28 @@ class _HomeScreenState extends State<HomeScreen> {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       direction: DismissDirection.endToStart,
-      onDismissed: (direction) {
-        _deleteExpense(expense.id!);
+
+      // Диалог ДО того, как элемент «улетит». Отмена → false → элемент
+      // сам вернётся на место, никакой ошибки «dismissed Dismissible».
+      confirmDismiss: (_) => _confirmDeleteExpense(),
+
+      // Срабатывает только после confirmDismiss == true.
+      // Убираем элемент из локального списка СИНХРОННО, в этом же кадре.
+      onDismissed: (_) {
+        final removed = expense;
+        setState(() {
+          _expenses.removeWhere((e) => e.id == removed.id);
+          _total -= removed.amount;
+          if (removed.category == 'fixed') {
+            _totalFixed -= removed.amount;
+          } else {
+            _totalPersonal -= removed.amount;
+          }
+        });
+        // БД и SnackBar — асинхронно, уже после setState.
+        _deleteExpense(removed.id!);
       },
+
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: ListTile(
