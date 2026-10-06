@@ -31,7 +31,10 @@ class _HomeScreenState extends State<HomeScreen> {
   double _total = 0.0;
   double _totalFixed = 0.0;
   double _totalPersonal = 0.0;
-  double? _budget;
+
+  // Два независимых бюджета на месяц.
+  double? _budgetFixed;
+  double? _budgetPersonal;
 
   bool _isLoading = true;
 
@@ -60,17 +63,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final prefs = await SharedPreferences.getInstance();
-    final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
-    final budget = prefs.getDouble(budgetKey);
+    // Миграция: старый единый ключ больше не используем — чистим,
+    // чтобы он не мусорил в SharedPreferences.
+    await prefs.remove('budget_${_currentYear}_${_currentMonth}');
 
-    if (budget != null) {
-      await _checkBudgetThresholds(
-        budget: budget,
-        spent: total,
-        year: _currentYear,
-        month: _currentMonth,
-      );
-    }
+    final budgetFixed =
+        prefs.getDouble('budget_fixed_${_currentYear}_${_currentMonth}');
+    final budgetPersonal =
+        prefs.getDouble('budget_personal_${_currentYear}_${_currentMonth}');
+
+    // Проверяем пороги для каждой категории отдельно.
+    await _checkBudgetThresholds(
+      kind: 'fixed',
+      budget: budgetFixed,
+      spent: fixed,
+      year: _currentYear,
+      month: _currentMonth,
+    );
+    await _checkBudgetThresholds(
+      kind: 'personal',
+      budget: budgetPersonal,
+      spent: personal,
+      year: _currentYear,
+      month: _currentMonth,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -78,32 +94,44 @@ class _HomeScreenState extends State<HomeScreen> {
       _total = total;
       _totalFixed = fixed;
       _totalPersonal = personal;
-      _budget = budget;
+      _budgetFixed = budgetFixed;
+      _budgetPersonal = budgetPersonal;
       _isLoading = false;
     });
   }
 
+  /// Проверка порогов одного бюджета. [kind] — 'fixed' или 'personal'.
+  /// Флаги «уже отправлено» в SharedPreferences отдельные для каждой
+  /// категории и каждого месяца, поэтому fixed и personal не глушат друг друга.
   Future<void> _checkBudgetThresholds({
-    required double budget,
+    required String kind,
+    required double? budget,
     required double spent,
     required int year,
     required int month,
   }) async {
-    if (budget <= 0) return;
+    if (budget == null || budget <= 0) return;
     final percent = spent / budget;
 
     final prefs = await SharedPreferences.getInstance();
-    final key80 = 'budget_notified_80_${year}_${month}';
-    final key100 = 'budget_notified_100_${year}_${month}';
-    final notifId = year * 100 + month;
+    final key80 = 'budget_notified_80_${kind}_${year}_${month}';
+    final key100 = 'budget_notified_100_${kind}_${year}_${month}';
+
+    // kindCode: 0 — fixed, 1 — personal.
+    // Итоговый ID: year*10000 + month*100 + kindCode*10 + thresholdCode.
+    // Для year=2026, month=10: fixed → 20261000/20261001, personal → 20261010/20261011.
+    final int kindCode = kind == 'fixed' ? 0 : 1;
+    final int baseId = year * 10000 + month * 100 + kindCode * 10;
+
+    final String label = kind == 'fixed' ? 'Обязательные' : 'Личные';
 
     if (percent >= 1.0) {
       if (prefs.getBool(key100) != true) {
         await NotificationService.instance.showBudgetNotification(
-          id: notifId * 10 + 1,
-          title: 'Бюджет превышен',
+          id: baseId + 1,
+          title: 'Бюджет превышен · $label',
           body: 'Потрачено ${spent.toStringAsFixed(0)} ₽ из '
-              '${budget.toStringAsFixed(0)} ₽ — бюджет на месяц исчерпан.',
+              '${budget.toStringAsFixed(0)} ₽ — лимит исчерпан.',
         );
         await prefs.setBool(key100, true);
         await prefs.setBool(key80, true);
@@ -111,14 +139,24 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (percent >= 0.8) {
       if (prefs.getBool(key80) != true) {
         await NotificationService.instance.showBudgetNotification(
-          id: notifId * 10,
-          title: 'Скоро бюджет закончится',
+          id: baseId,
+          title: 'Скоро закончится бюджет · $label',
           body: 'Потрачено уже ${(percent * 100).toStringAsFixed(0)}% '
-              'бюджета (${spent.toStringAsFixed(0)} ₽ из '
+              '(${spent.toStringAsFixed(0)} ₽ из '
               '${budget.toStringAsFixed(0)} ₽).',
         );
         await prefs.setBool(key80, true);
       }
+    }
+  }
+
+  /// Сброс флагов «уже уведомляли» для обоих бюджетов за текущий месяц.
+  /// Вызывается после изменения бюджетов, чтобы пороги пересчитались заново.
+  Future<void> _resetBudgetNotifiedFlags(int year, int month) async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final kind in ['fixed', 'personal']) {
+      await prefs.remove('budget_notified_80_${kind}_${year}_${month}');
+      await prefs.remove('budget_notified_100_${kind}_${year}_${month}');
     }
   }
 
@@ -146,8 +184,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ---------- УДАЛЕНИЕ ТРАТЫ ----------
 
-  /// Запись в БД + SnackBar. Вызывается из onDismissed ПОСЛЕ того,
-  /// как элемент уже удалён из локального списка синхронно.
   Future<void> _deleteExpense(int id) async {
     await DatabaseHelper.instance.deleteTransaction(id);
     if (!mounted) return;
@@ -156,9 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Диалог подтверждения. Возвращает true, если юзер подтвердил удаление.
-  /// Вызывается из Dismissible.confirmDismiss — ДО того, как элемент
-  /// «улетит» из списка.
   Future<bool> _confirmDeleteExpense() async {
     final result = await showDialog<bool>(
       context: context,
@@ -195,69 +228,68 @@ class _HomeScreenState extends State<HomeScreen> {
     return filtered;
   }
 
-  Future<void> _showBudgetDialog() async {
-    final controller = TextEditingController();
-    if (_budget != null) controller.text = _budget!.toString();
+  // ---------- ДИАЛОГ БЮДЖЕТОВ ----------
 
-    final result = await showDialog<double>(
+  Future<void> _showBudgetsDialog() async {
+    final result = await showDialog<_BudgetsResult>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Бюджет на месяц'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Сумма бюджета (₽)',
-            hintText: 'Введите сумму',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, null),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () {
-              final value = double.tryParse(controller.text);
-              if (value != null && value > 0) {
-                Navigator.pop(context, value);
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Введите корректную сумму')),
-                );
-              }
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
+      builder: (_) => _BudgetsDialog(
+        fixed: _budgetFixed,
+        personal: _budgetPersonal,
       ),
     );
+    if (result == null) return;
 
-    if (result != null) {
-      final prefs = await SharedPreferences.getInstance();
-      final budgetKey = 'budget_${_currentYear}_${_currentMonth}';
-      await prefs.setDouble(budgetKey, result);
-      await prefs.remove('budget_notified_80_${_currentYear}_${_currentMonth}');
-      await prefs
-          .remove('budget_notified_100_${_currentYear}_${_currentMonth}');
-      if (!mounted) return;
-      setState(() => _budget = result);
-      await _checkBudgetThresholds(
-        budget: result,
-        spent: _total,
-        year: _currentYear,
-        month: _currentMonth,
-      );
+    final prefs = await SharedPreferences.getInstance();
+    final fixedKey = 'budget_fixed_${_currentYear}_${_currentMonth}';
+    final personalKey = 'budget_personal_${_currentYear}_${_currentMonth}';
+
+    if (result.fixed != null) {
+      await prefs.setDouble(fixedKey, result.fixed!);
+    } else {
+      await prefs.remove(fixedKey);
     }
+    if (result.personal != null) {
+      await prefs.setDouble(personalKey, result.personal!);
+    } else {
+      await prefs.remove(personalKey);
+    }
+
+    // Бюджеты изменились — пороги 80/100 нужно пересчитать заново.
+    await _resetBudgetNotifiedFlags(_currentYear, _currentMonth);
+
+    if (!mounted) return;
+    setState(() {
+      _budgetFixed = result.fixed;
+      _budgetPersonal = result.personal;
+    });
+
+    await _checkBudgetThresholds(
+      kind: 'fixed',
+      budget: _budgetFixed,
+      spent: _totalFixed,
+      year: _currentYear,
+      month: _currentMonth,
+    );
+    await _checkBudgetThresholds(
+      kind: 'personal',
+      budget: _budgetPersonal,
+      spent: _totalPersonal,
+      year: _currentYear,
+      month: _currentMonth,
+    );
   }
 
-  Widget _buildBudgetProgress() {
-    if (_budget == null || _budget == 0) return const SizedBox.shrink();
+  /// Одна прогресс-шкала для конкретного бюджета.
+  /// Если бюджета нет — возвращаем пустой виджет.
+  Widget _buildBudgetProgress({
+    required double? budget,
+    required double spent,
+  }) {
+    if (budget == null || budget == 0) return const SizedBox.shrink();
 
     final cs = Theme.of(context).colorScheme;
-    final spent = _total;
-    final percent = spent / _budget!;
+    final percent = spent / budget;
     final clampedPercent = percent.clamp(0.0, 1.0);
 
     final barColor = clampedPercent < 0.8
@@ -265,17 +297,27 @@ class _HomeScreenState extends State<HomeScreen> {
         : (clampedPercent < 1.0 ? Colors.orange : Colors.red);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.only(top: 4.0, bottom: 4.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Бюджет: ${_budget!.toStringAsFixed(0)} ₽'),
               Text(
-                'Потрачено: ${spent.toStringAsFixed(0)} ₽ '
-                '(${(clampedPercent * 100).toStringAsFixed(0)}%)',
+                'Бюджет: ${budget.toStringAsFixed(0)} ₽',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.75),
+                ),
+              ),
+              Text(
+                '${(clampedPercent * 100).toStringAsFixed(0)}%',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: cs.onPrimaryContainer.withValues(alpha: 0.9),
+                ),
               ),
             ],
           ),
@@ -284,8 +326,8 @@ class _HomeScreenState extends State<HomeScreen> {
             value: clampedPercent,
             backgroundColor: cs.surfaceContainerHighest,
             color: barColor,
-            minHeight: 8,
-            borderRadius: BorderRadius.circular(4),
+            minHeight: 6,
+            borderRadius: BorderRadius.circular(3),
           ),
         ],
       ),
@@ -419,9 +461,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ================== СВОДКА ==================
+  // Теперь с двумя независимыми шкалами бюджета.
   Widget _buildSummary() {
     final cs = Theme.of(context).colorScheme;
     final String monthName = _getMonthName(_currentMonth);
+
+    final bool hasAnyBudget = _budgetFixed != null || _budgetPersonal != null;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -432,6 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // --- Переключатель месяца ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -456,6 +503,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 8),
+
+          // --- Всего ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -473,7 +522,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
+
+          // --- Обязательные + прогресс ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -493,6 +544,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          _buildBudgetProgress(budget: _budgetFixed, spent: _totalFixed),
+
+          // --- Личные + прогресс ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -512,46 +566,18 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          _buildBudgetProgress(),
-          if (_budget == null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: _showBudgetDialog,
-                child: const Text('Установить бюджет'),
-              ),
-            )
-          else
-            Align(
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextButton(
-                    onPressed: _showBudgetDialog,
-                    child: const Text('Изменить'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      final prefs = await SharedPreferences.getInstance();
-                      final budgetKey =
-                          'budget_${_currentYear}_${_currentMonth}';
-                      await prefs.remove(budgetKey);
-                      await prefs.remove(
-                          'budget_notified_80_${_currentYear}_${_currentMonth}');
-                      await prefs.remove(
-                          'budget_notified_100_${_currentYear}_${_currentMonth}');
-                      if (!mounted) return;
-                      setState(() => _budget = null);
-                    },
-                    child: const Text(
-                      'Удалить',
-                      style: TextStyle(color: Colors.red),
-                    ),
-                  ),
-                ],
+          _buildBudgetProgress(budget: _budgetPersonal, spent: _totalPersonal),
+
+          // --- Кнопка настройки бюджетов ---
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _showBudgetsDialog,
+              child: Text(
+                hasAnyBudget ? 'Настроить бюджеты' : 'Установить бюджеты',
               ),
             ),
+          ),
         ],
       ),
     );
@@ -638,8 +664,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildExpenseItem(Expense expense, CategoryProvider categories) {
     final Color iconColor =
         expense.category == 'fixed' ? Colors.blue : Colors.orange;
-    // Иконку берём из категории (провайдер ищет по slug; для архивных
-    // категорий — тоже найдёт, т.к. провайдер хранит их в _categories).
     final IconData iconData = categories.iconOf(expense.subcategory);
 
     return Dismissible(
@@ -651,13 +675,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: const Icon(Icons.delete, color: Colors.white),
       ),
       direction: DismissDirection.endToStart,
-
-      // Диалог ДО того, как элемент «улетит». Отмена → false → элемент
-      // сам вернётся на место, никакой ошибки «dismissed Dismissible».
       confirmDismiss: (_) => _confirmDeleteExpense(),
-
-      // Срабатывает только после confirmDismiss == true.
-      // Убираем элемент из локального списка СИНХРОННО, в этом же кадре.
       onDismissed: (_) {
         final removed = expense;
         setState(() {
@@ -669,10 +687,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _totalPersonal -= removed.amount;
           }
         });
-        // БД и SnackBar — асинхронно, уже после setState.
         _deleteExpense(removed.id!);
       },
-
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: ListTile(
@@ -716,5 +732,96 @@ class _HomeScreenState extends State<HomeScreen> {
       'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
     ];
     return months[month - 1];
+  }
+}
+
+class _BudgetsResult {
+  final double? fixed;
+  final double? personal;
+  const _BudgetsResult({this.fixed, this.personal});
+}
+
+class _BudgetsDialog extends StatefulWidget {
+  final double? fixed;
+  final double? personal;
+  const _BudgetsDialog({this.fixed, this.personal});
+
+  @override
+  State<_BudgetsDialog> createState() => _BudgetsDialogState();
+}
+
+class _BudgetsDialogState extends State<_BudgetsDialog> {
+  late final TextEditingController _fixedController;
+  late final TextEditingController _personalController;
+
+  @override
+  void initState() {
+    super.initState();
+    _fixedController =
+        TextEditingController(text: widget.fixed?.toString() ?? '');
+    _personalController =
+        TextEditingController(text: widget.personal?.toString() ?? '');
+  }
+
+  @override
+  void dispose() {
+    _fixedController.dispose();
+    _personalController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final fixed = double.tryParse(_fixedController.text.trim());
+    final personal = double.tryParse(_personalController.text.trim());
+    Navigator.pop(
+      context,
+      _BudgetsResult(
+        fixed: (fixed != null && fixed > 0) ? fixed : null,
+        personal: (personal != null && personal > 0) ? personal : null,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Бюджеты на месяц'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _fixedController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Обязательные (₽)',
+                hintText: 'Пусто — без лимита',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _personalController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Личные (₽)',
+                hintText: 'Пусто — без лимита',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Сохранить'),
+        ),
+      ],
+    );
   }
 }
