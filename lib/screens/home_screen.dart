@@ -14,6 +14,7 @@ import 'trend_screen.dart';
 import 'data_screen.dart';
 import 'categories_screen.dart';
 import '../services/notification_service.dart';
+import 'scan_receipt_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -415,6 +416,21 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
+          ),
+          IconButton(
+            icon: const Icon(Icons.document_scanner),
+            tooltip: 'Сканировать чек',
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ScanReceiptScreen(),
+                ),
+              );
+              if (result == true) {
+                _loadData();
+              }
+            },
           ),
         ],
       ),

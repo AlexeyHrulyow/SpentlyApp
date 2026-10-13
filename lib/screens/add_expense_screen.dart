@@ -9,7 +9,16 @@ import '../database/database_helper.dart';
 import '../providers/category_provider.dart';
 
 class AddExpenseScreen extends StatefulWidget {
-  const AddExpenseScreen({super.key});
+  final double? initialAmount;
+  final DateTime? initialDate;
+  final String? initialSubcategory;
+
+  const AddExpenseScreen({
+    super.key,
+    this.initialAmount,
+    this.initialDate,
+    this.initialSubcategory,
+  });
 
   @override
   State<AddExpenseScreen> createState() => _AddExpenseScreenState();
@@ -74,6 +83,36 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       ),
     );
   }
+
+@override
+void initState() {
+  super.initState();
+
+  if (widget.initialAmount != null) {
+    _amountController.text =
+        widget.initialAmount!.toStringAsFixed(2);
+  }
+  if (widget.initialDate != null) {
+    _selectedDate = widget.initialDate!;
+  }
+  if (widget.initialSubcategory != null) {
+    // Подкатегория могла быть архивирована — проверяем,
+    // что она есть в списке активных, иначе fallback на первую.
+    final provider = context.read<CategoryProvider>();
+    final available = provider.byType('fixed');
+    final personalAvailable = provider.byType('personal');
+
+    final exists = [...available, ...personalAvailable]
+        .any((c) => c.name == widget.initialSubcategory);
+    if (exists) {
+      _selectedSubcategory = widget.initialSubcategory;
+      // Определяем тип по подкатегории.
+      final cat = [...available, ...personalAvailable]
+          .firstWhere((c) => c.name == widget.initialSubcategory);
+      _selectedCategory = cat.type;
+    }
+  }
+}
 
   @override
   Widget build(BuildContext context) {
