@@ -12,10 +12,10 @@ class StatsScreen extends StatefulWidget {
   final int initialMonth;
 
   const StatsScreen({
-    Key? key,
+    super.key,
     required this.initialYear,
     required this.initialMonth,
-  }) : super(key: key);
+  });
 
   @override
   _StatsScreenState createState() => _StatsScreenState();

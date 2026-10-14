@@ -17,6 +17,8 @@ import '../services/notification_service.dart';
 import 'scan_receipt_screen.dart';
 
 class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
   _HomeScreenState createState() => _HomeScreenState();
 }
@@ -66,12 +68,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     // Миграция: старый единый ключ больше не используем — чистим,
     // чтобы он не мусорил в SharedPreferences.
-    await prefs.remove('budget_${_currentYear}_${_currentMonth}');
+    await prefs.remove('budget_${_currentYear}_$_currentMonth');
 
     final budgetFixed =
-        prefs.getDouble('budget_fixed_${_currentYear}_${_currentMonth}');
+        prefs.getDouble('budget_fixed_${_currentYear}_$_currentMonth');
     final budgetPersonal =
-        prefs.getDouble('budget_personal_${_currentYear}_${_currentMonth}');
+        prefs.getDouble('budget_personal_${_currentYear}_$_currentMonth');
 
     // Проверяем пороги для каждой категории отдельно.
     await _checkBudgetThresholds(
@@ -115,8 +117,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final percent = spent / budget;
 
     final prefs = await SharedPreferences.getInstance();
-    final key80 = 'budget_notified_80_${kind}_${year}_${month}';
-    final key100 = 'budget_notified_100_${kind}_${year}_${month}';
+    final key80 = 'budget_notified_80_${kind}_${year}_$month';
+    final key100 = 'budget_notified_100_${kind}_${year}_$month';
 
     // kindCode: 0 — fixed, 1 — personal.
     // Итоговый ID: year*10000 + month*100 + kindCode*10 + thresholdCode.
@@ -156,8 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _resetBudgetNotifiedFlags(int year, int month) async {
     final prefs = await SharedPreferences.getInstance();
     for (final kind in ['fixed', 'personal']) {
-      await prefs.remove('budget_notified_80_${kind}_${year}_${month}');
-      await prefs.remove('budget_notified_100_${kind}_${year}_${month}');
+      await prefs.remove('budget_notified_80_${kind}_${year}_$month');
+      await prefs.remove('budget_notified_100_${kind}_${year}_$month');
     }
   }
 
@@ -242,8 +244,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result == null) return;
 
     final prefs = await SharedPreferences.getInstance();
-    final fixedKey = 'budget_fixed_${_currentYear}_${_currentMonth}';
-    final personalKey = 'budget_personal_${_currentYear}_${_currentMonth}';
+    final fixedKey = 'budget_fixed_${_currentYear}_$_currentMonth';
+    final personalKey = 'budget_personal_${_currentYear}_$_currentMonth';
 
     if (result.fixed != null) {
       await prefs.setDouble(fixedKey, result.fixed!);
@@ -453,8 +455,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _loadData();
           }
         },
-        child: const Icon(Icons.add),
         tooltip: 'Добавить трату',
+        child: const Icon(Icons.add),
       ),
     );
   }

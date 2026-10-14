@@ -720,10 +720,9 @@ packages:
   tesseract_ocr:
     dependency: "direct main"
     description:
-      name: tesseract_ocr
-      sha256: "151a2834cea8798db63510aa783c4db2af147586050919cbbc18b287599249e3"
-      url: "https://pub.dev"
-    source: hosted
+      path: "packages/tesseract_ocr"
+      relative: true
+    source: path
     version: "0.4.1"
   test_api:
     dependency: transitive
